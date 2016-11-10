@@ -137,7 +137,7 @@ for month_key in month_start_end_row_indices:
     assert df.isnull().any().sum() == 0, "Data still contains nan values : \n\n {}".format(df.isnull().any())
     
     logging.info("- Write data")
-    df.to_csv(filename)   
+    df.to_csv(filename, index_label=False)   
     
 
 
