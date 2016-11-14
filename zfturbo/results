@@ -101,3 +101,18 @@ Kaggle: 0.0161563
 **Results:**
 INFO:root:Predicted score: 0.0172339792323
 Kaggle: 0.0163384
+
+
+### Test 7:
+
+**Dataset configuration :**
+    - train : 201601-201604 (full), validation : 201605 (full)
+
+**Options : **
+    - `proba = np.array(values) / (2.0 * nb_months) + 0.5`
+
+    - `COMMON_RECOMMENDATIONS_WEIGHT = 0.5`
+
+**Results:**
+INFO:root:Predicted score: 0.0166102609575
+Kaggle: 0.0163645

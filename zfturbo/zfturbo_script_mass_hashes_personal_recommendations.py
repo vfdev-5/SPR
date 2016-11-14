@@ -429,11 +429,11 @@ def run_solution():
     reader = open("../data/train_ver2.csv", "r")
     target_labels = get_target_labels(reader.readline())
 
-    nb_months_validation = 16
+    nb_months_validation = 4
 
     (personal_recommendations_validation,
      common_recommendations_validation,
-     product_stats_validation) = read_data(reader, 201501, nb_months_validation, get_profiles)
+     product_stats_validation) = read_data(reader, 201601, nb_months_validation, get_profiles)
 
     logging.debug("-- common_recommendations_validation : %s " % len(common_recommendations_validation))
     logging.debug("-- personal_recommendations_validation : %s " % len(personal_recommendations_validation))
