@@ -70,14 +70,21 @@ def clean(df):
 
 
     # ### Now for gross income, aka `renta`
-    # Fill `renta` nan -> median per region, employee index, segment, gender if not defined replace by -99
-    incomes_gb = df[df['renta'].notnull()].groupby(['nomprov', 'ind_empleado', 'segmento', 'sexo'])
+    # Fill `renta` nan -> median per region, employee index, segment, gender, if has no information -> replace by -99
+    incomes_gb = df[df['renta'].notnull()].groupby(['nomprov', 'ind_empleado', 'segmento', 'sexo', 'age'])
     incomes_stats = incomes_gb.agg("median")
-    nan_incomes_gb = df[df['renta'].isnull()].groupby(['nomprov', 'ind_empleado', 'segmento', 'sexo'])
-    nan_incomes_stats = nan_incomes_gb.agg("size")
+    nan_incomes_gb = df[df['renta'].isnull()].groupby(['nomprov', 'ind_empleado', 'segmento', 'sexo', 'age'])
+    # nan_incomes_stats = nan_incomes_gb.agg("size")
 
     for key, group_value in nan_incomes_gb:
         if key in incomes_stats.index:
             df.loc[group_value.index, 'renta'] = incomes_stats.loc[key]['renta']
         else:
             df.loc[group_value.index, 'renta'] = -99
+
+    df['logrenta'] = np.log(df[df['renta'] > 0]['renta'] + 1)
+    df.loc[df['logrenta'].isnull(), 'logrenta'] = -99
+    # Drop 'renta' and 'antiguedad'
+    df.drop(['renta', 'antiguedad'], axis=1, inplace=True)        
+                
+        

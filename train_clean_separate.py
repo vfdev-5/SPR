@@ -5,6 +5,7 @@
 
 # Python & Co
 import os
+import sys
 import numpy as np
 import pandas as pd
 import logging
@@ -90,7 +91,11 @@ TARGET_LABELS = ['ind_ahor_fin_ult1', 'ind_aval_fin_ult1', 'ind_cco_fin_ult1',
                  'ind_tjcr_fin_ult1', 'ind_valo_fin_ult1', 'ind_viv_fin_ult1',
                  'ind_nomina_ult1', 'ind_nom_pens_ult1', 'ind_recibo_ult1']
 
-
+REDUCE_SIZE = False
+if len(sys.argv) == 2 and sys.argv[1] == '--reduce':
+    logging.info("Reduce size option is found")
+    REDUCE_SIZE=True
+    
 ## Data stats: data per month representations
 logging.info("Setup data per month representations")
 
@@ -112,10 +117,16 @@ del gb
 ## Clean and save data per month
 load_dtypes={"sexo":str, "ind_nuevo":str, "ult_fec_cli_1t":str, "indext":str, "indrel_1mes":str, "conyuemp":str}
 
+
+# For reduce_size
+selected_clients = None
+
 for month_key in month_start_end_row_indices:
     
     logging.info("Process the month: %s" % month_key)
     path = "train_%s-%s.csv" % (month_key.year, month_key.month)
+    if REDUCE_SIZE:
+        path = "reduced_" + path
     filename=data_path+path
     if os.path.exists(filename):
         logging.info("-- Found existing file: %s" % filename)
@@ -133,11 +144,44 @@ for month_key in month_start_end_row_indices:
 
     # Data Cleaning
     df = train_month
-    clean(df)
+    try:
+        clean(df)
+    except:
+        logging.info("Exception is thrown")
+        continue
     assert df.isnull().any().sum() == 0, "Data still contains nan values : \n\n {}".format(df.isnull().any())
     
+    
+    if REDUCE_SIZE:
+        logging.info("- Reduce size")          
+        
+        if selected_clients is None:      
+            full_stats = df.describe()
+            unique_ids   = pd.Series(df["ncodpers"].unique())
+            limit_people = 200000
+            counter = 200
+            found = False
+            tol = 0.1
+            while counter > 0 and not found:
+                counter -= 1
+                selected_clients = unique_ids.sample(n=limit_people)
+                reduced_df = df[df['ncodpers'].isin(selected_clients)]
+                reduced_stats = reduced_df.describe()
+                err = np.abs(full_stats - reduced_stats).drop(['count', '25%', '50%', '75%']).drop(['ncodpers'], axis=1)
+                q = np.sum(np.sum(err, axis=1))
+                logging.info("-- Reduce size | counter : %s, err=%s" % (counter, q))
+                if q < tol:
+                    found = True
+
+            assert found, "Failed to reduce"
+            df.drop(df[~df['ncodpers'].isin(unique_id)].index, inplace=True)
+        else:
+            pass
+    
+    
+    
     logging.info("- Write data")
-    df.to_csv(filename, index_label=False)   
+    df.to_csv(filename, index=False, index_label=False)   
     
 
 
