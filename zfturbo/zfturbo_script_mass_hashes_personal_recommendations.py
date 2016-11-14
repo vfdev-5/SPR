@@ -12,6 +12,7 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 
 from collections import defaultdict
+from copy import deepcopy
 from operator import itemgetter
 import random
 # import itertools
@@ -27,13 +28,16 @@ from common import parse_line, get_target_labels, get_choices, get_user, \
 
 #####################################################################
 
-COMMON_RECOMMENDATIONS_WEIGHT = 0.4
+COMMON_RECOMMENDATIONS_WEIGHT = 0.5
 PERSONAL_RECOMMENDATIONS_WEIGHT = 1.0 - COMMON_RECOMMENDATIONS_WEIGHT
 
 #####################################################################
 
 
 def apk(actual, predicted, k=7):
+    
+    #print "APK : ", actual, predicted
+    
     if len(predicted) > k:
         predicted = predicted[:k]
 
@@ -49,31 +53,6 @@ def apk(actual, predicted, k=7):
         return 0.0
 
     return score / min(len(actual), k)
-
-
-def get_next_best_prediction(best, hashes, predicted, cst):
-
-    score = [0] * 24
-
-    for h in hashes:
-        if h in best:
-            for i in range(len(best[h])):
-                sc = 24-i + len(h)
-                index = best[h][i][0]
-                if cst is not None:
-                    if cst[index] == '1':
-                        continue
-                if index not in predicted:
-                    score[index] += sc
-
-    final = []
-    pred = heapq.nlargest(7, range(len(score)), score.__getitem__)
-    for i in range(7):
-        if score[pred[i]] > 0:
-            final.append(pred[i])
-
-    return final
-
 
 ####################################################################################
 
@@ -107,36 +86,63 @@ def get_next_best_prediction(best, hashes, predicted, cst):
 #     return predictions.astype(np.int)
 
 
-def compute_recommendations_proba(user, personal_recommendations, profiles, common_recommendations):
-    # common_predictions = []
-    # for profile in profiles:
-    #     if profile in common_recommendations:
-    #         for i in range():
-    #             common_predictions.append(common_recommendations[profile][t])
-    return []
+def compute_suggestions(user, personal_recommendations, profiles, common_recommendations):
+
+    common_predictions = compute_predictions_from_common(common_recommendations, profiles)
+    personal_predictions = compute_predictions_from_personal(user, personal_recommendations)
+
+    suggestions = []
+    if common_predictions is not None and personal_predictions is not None:
+        suggestions = COMMON_RECOMMENDATIONS_WEIGHT * common_predictions + PERSONAL_RECOMMENDATIONS_WEIGHT * personal_predictions
+    elif personal_predictions is not None:
+        suggestions = personal_predictions
+    elif common_predictions is not None:
+        suggestions = common_predictions
+    else:
+        return []
+    
+    suggestions = np.argsort(suggestions)[::-1].tolist()
+    #print "\n Suggestions : ", suggestions
+    return suggestions
 
 
-def compute_predictions_from_common(common_recommendations, profiles, predicted, customer_data):
-    # score = [0] * 24
-    # for profile in profiles:
-    #     if profile in common_recommendations:
-    #         for i in range(len(common_recommendations[profile])):
-    #             sc = 24-i + len(profile)
-    #             index = common_recommendations[profile][i][0]
-    #             if customer_data is not None:
-    #                 if customer_data[index] == 1:
-    #                     continue
-    #             if index not in predicted:
-    #                 score[index] += sc
-    #
-    # final = []
-    # pred = heapq.nlargest(7, range(len(score)), score.__getitem__)
-    # for i in range(7):
-    #     if score[pred[i]] > 0:
-    #         final.append(pred[i])
-    #
-    # return final
-    return []
+def compute_predictions_from_personal(user, personal_recommendations):
+    personal_predictions = None
+    if user in personal_recommendations:
+        personal_predictions = personal_recommendations[user]['recommendations']
+
+    #print "\n\n Personal predictions: ", personal_predictions
+    return personal_predictions
+
+
+def compute_predictions_from_common(common_recommendations, profiles):
+    """
+    Compute suggestion using profiles
+    
+    if len(profile1) > len(profile2) -> profile1 is more important than profile2
+    
+    :return: list of target indices sorted by descreasing importance with proba
+    
+    """
+    target_weights = None
+    total_length = 0.0
+    # compute a total length to of participating profiles to define profile weight
+    for profile in profiles:
+        if profile in common_recommendations:
+            total_length += len(profile)
+            
+    if total_length > 0:
+        target_weights = np.zeros((24))
+        
+    for profile in profiles:
+        if profile in common_recommendations:
+            profile_weight = len(profile) * 1.0 / total_length
+            for target in common_recommendations[profile]:
+                if isinstance(target, int):
+                    target_weights[target] += common_recommendations[profile][target] * profile_weight
+                    
+    #print "\n\n Common predictions : ", target_weights
+    return target_weights
 
 
 def compute_predictions(row, get_profiles_func,
@@ -146,29 +152,41 @@ def compute_predictions(row, get_profiles_func,
     predicted = []
     user = get_user(row)
     profiles = get_profiles_func(row)
+    
+    last_choice = None
+    if user in personal_recommendations:
+        last_choice = personal_recommendations[user]['last_choice']
 
-    # Get prior predicitions from personal recommendations
+    # 
+    suggestions = compute_suggestions(user, personal_recommendations, profiles, common_recommendations)
 
-
-    # customer_data = None
-    # if user in personal_recommendations:
-    #     customer_data = personal_recommendations[user]['last_choice']
-    #
-    # predicted = compute_predictions_from_common(common_recommendations, profiles, predicted, customer_data)
-
+    # Remove the products from the last choice : 
+    if last_choice is not None:
+        for product in suggestions:
+            if last_choice[product] == 1:
+                suggestions.remove(product)
+    
+    #print "\n Suggestions after last choice : ", suggestions
+   
+    # add 7 to predicted:
+    if len(predicted) < 7:
+        l = min(7, len(suggestions))
+        predicted = suggestions[:l]
+    
+    #print "\n- PREDICTED : ", predicted
     # add suggestions from product_stats:
     if len(predicted) < 7:
         for product in product_stats:
             # If user is not new
-            if user in personal_recommendations:
-                last_choice = personal_recommendations[user]['last_choice']
-                if last_choice[product[0]] == 1:
-                    continue
+            if last_choice is not None and last_choice[product[0]] == 1:
+                continue
 
             if product[0] not in predicted:
                 predicted.append(product[0])
                 if len(predicted) == 7:
                     break
+
+    #print "FINAL PREDICTED : ", predicted 
     return predicted
 
 
@@ -229,14 +247,15 @@ def get_profiles(row):
      ind_actividad_cliente, renta, segmento) = row[:24]
 
     profiles = [
-        (0, pais_residencia, nomprov, sexo, age_group, renta, segmento),
-        (1, pais_residencia, age_group, renta, segmento),
+        #(0, pais_residencia, nomprov, sexo, age_group, renta, segmento, ind_empleado),
+        (1, pais_residencia, nomprov, renta, ind_empleado),
         (2, sexo, age_group, renta, segmento),
 
-        (10, antiguedad, indrel_1mes, indrel, indresi),
-        (11, canal_entrada, ind_actividad_cliente, ind_nuevo),
+        #(10, antiguedad, indrel_1mes, indrel, indresi, canal_entrada, ind_actividad_cliente, ind_nuevo),
+        (11, antiguedad, indrel_1mes, indrel, indresi),
+        (12, canal_entrada, ind_actividad_cliente, ind_nuevo),
 
-        (100, sexo, age_group, renta, antiguedad, indrel, ind_actividad_cliente),
+        #(100, sexo, age_group, renta, antiguedad, indrel, ind_actividad_cliente),
     ]
 
     return profiles
@@ -245,12 +264,12 @@ def get_profiles(row):
 def update_common_recommendations(common_recommendations, row, get_profiles_func):
     profiles = get_profiles_func(row)
     choices = get_choices(row)
-    for i, t in enumerate(choices):
+    for profile in profiles:
         # Update common recommendations
-        for profile in profiles:
+        for i, t in enumerate(choices):
             if t > 0:
                 common_recommendations[profile][i] += 1
-            common_recommendations[profile]['total'] += 1
+        common_recommendations[profile]['total'] += 1
 
 
 def update_personal_recommendations(personal_recommendations, row):
@@ -350,8 +369,10 @@ def read_data(reader, yearmonth_begin, nb_months, get_profiles_func, return_raw_
             else:
                 break
 
-        if total > 1000:
-            continue
+        ### -------- !!! --------- ###
+        #if total > 250000:
+        #    continue
+        ### -------- !!! -------- ###
 
         row = clean_data(row)
 
@@ -369,7 +390,7 @@ def read_data(reader, yearmonth_begin, nb_months, get_profiles_func, return_raw_
         update_product_stats(product_stats, row)
 
         if total % 100000 == 0:
-            logging.info('-- Processed {} lines . Current month is : {}'.format(total, yearmonth_str))
+            logging.info('-- Processed {} lines . Current month : {}'.format(total, yearmonth_str))
 
     logging.debug("-- Removed rows : %s" % removed_rows)
 
@@ -382,16 +403,17 @@ def personal_recommendations_to_proba(personal_recommendations, nb_months):
     """
         Transform personal recommendations to probabilities :
         proba = values / (2.0 * (nb_months)) + 0.5
+            or 
+        proba = values / nb_months
     """
     for key in personal_recommendations:
         values = personal_recommendations[key]['recommendations']
         proba = np.array(values) / (2.0 * nb_months) + 0.5
+        #proba = np.array(values) / (1.0 * nb_months)
         personal_recommendations[key]['recommendations'] = proba
 
 
 def common_recommendations_to_proba(common_recommendations):
-    """
-    """
     for profile in common_recommendations:
         total_count = common_recommendations[profile]['total']
         for choice_index in common_recommendations[profile]:
@@ -438,25 +460,33 @@ def run_solution():
     reader = open("../data/train_ver2.csv", "r")
     target_labels = get_target_labels(reader.readline())
 
-    nb_months_validation = 2
+    nb_months_validation = 5
 
     (personal_recommendations_validation,
      common_recommendations_validation,
      product_stats_validation) = read_data(reader, 201501, nb_months_validation, get_profiles)
 
-    personal_recommendations = personal_recommendations_validation.copy()
-    common_recommendations = common_recommendations_validation.copy()
-    product_stats = product_stats_validation.copy()
+    logging.debug("\n common_recommendations_validation : %s " % len(common_recommendations_validation))
+    logging.debug("\n personal_recommendations_validation : %s " % len(personal_recommendations_validation))
+    logging.debug("\n product_stats_validation : %s " %  len(product_stats_validation))
+    
+    personal_recommendations = deepcopy(personal_recommendations_validation)
+    common_recommendations = deepcopy(common_recommendations_validation)
+    product_stats = deepcopy(product_stats_validation)
 
     (personal_recommendations,
      common_recommendations,
      product_stats,
-     validation_data) = read_data(reader, 201503, 1, get_profiles,
+     validation_data) = read_data(reader, 201507, 1, get_profiles,
                                   return_raw_data=True,
                                   personal_recommendations=personal_recommendations,
                                   common_recommendations=common_recommendations,
                                   product_stats=product_stats)
 
+    logging.debug("\n common_recommendations : %s " % len(common_recommendations))
+    logging.debug("\n personal_recommendations : %s " % len(personal_recommendations))
+    logging.debug("\n product_stats : %s " % len(product_stats))
+    
     reader.close()
 
     personal_recommendations_to_proba(personal_recommendations, nb_months_validation)
@@ -464,9 +494,6 @@ def run_solution():
 
     common_recommendations_to_proba(common_recommendations)
     common_recommendations_to_proba(common_recommendations_validation)
-
-    print common_recommendations
-    print personal_recommendations
 
     # Sort product stats:
     product_stats_validation = sorted(product_stats_validation.items(), key=itemgetter(1), reverse=True)
@@ -479,6 +506,7 @@ def run_solution():
 
     map7 = 0.0
     logging.info("- Validation")
+    counter = 2
     for row in validation_data:
         predicted = compute_predictions(row, get_profiles,
                                         personal_recommendations_validation,
@@ -489,13 +517,20 @@ def run_solution():
 
         score = apk(real, predicted)
         map7 += score
+        ### !!!!!!!! ###
+        #counter -= 1
+        #if counter == 0:
+        #    break
+        ### !!!!!!!! ###
 
     if len(validation_data) > 0:
         map7 /= len(validation_data)
 
     logging.info("Predicted score: {}".format(map7))
 
+    ### ------- ###
     return
+    ### ------- ###
 
     logging.info('- Generate submission')
     submission_file = 'submission_' + \

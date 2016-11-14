@@ -166,7 +166,7 @@ def clean_data(row):
     row[1] = int(ncodpers)
     row[5] = int(age) if age != "NA" else MEAN_AGE
     row[22] = float(renta) if renta != "NA" else renta
-    row[11] = str(int(float(indrel_1mes))) if len(indrel_1mes) else indrel_1mes  # Remove floating point at string indrel_1mes
+    row[11] = str(int(float(indrel_1mes))) if len(indrel_1mes) == 3 else indrel_1mes  # Remove floating point at string indrel_1mes
 
     for i in range(24, len(row)):
         row[i] = int(row[i]) if row[i] != "NA" else 0

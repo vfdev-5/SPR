@@ -1,0 +1,73 @@
+# Various results 
+
+
+## First tests of zfturbo_script_mass_hashes_personal_recommendations.py
+
+### Test 1:
+**Dataset configuration :**
+    - train : 201501-201502 (full), validation : 201503 (full)
+
+**Options : **
+    - `proba = values / nb_months`
+    
+    - `COMMON_RECOMMENDATIONS_WEIGHT = 0.5`
+
+**Results:**
+INFO:root:Predicted score: 0.0208096529837
+
+
+### Test 2:
+
+**Dataset configuration :**
+    - train : 201501-201502 (full), validation : 201503 (full)
+
+**Options : **
+    - `proba = np.array(values) / (2.0 * nb_months) + 0.5`
+    
+    - `COMMON_RECOMMENDATIONS_WEIGHT = 0.5`
+
+**Results:**
+INFO:root:Predicted score: 0.0213302407694
+
+
+### Test 3:
+
+**Dataset configuration :**
+    - train : 201501-201502 (250k), validation : 201503 (250k)
+
+**Options : **
+    - `proba = np.array(values) / (2.0 * nb_months) + 0.5`
+    
+    - `COMMON_RECOMMENDATIONS_WEIGHT = 0.5`
+
+**Results:**
+INFO:root:Predicted score: 0.548605911347 ?????
+
+
+
+### Test 4:
+
+**Dataset configuration :**
+    - train : 201501-201505 (full), validation : 201507 (full)
+
+**Options : **
+    - `proba = np.array(values) / (2.0 * nb_months) + 0.5`
+        
+    - `COMMON_RECOMMENDATIONS_WEIGHT = 0.5`
+
+**Results:**
+INFO:root:Predicted score: 0.040358012212
+
+
+### Test 5:
+
+**Dataset configuration :**
+    - train : 201505-201508 (full), validation : 201511 (full)
+
+**Options : **
+    - `proba = np.array(values) / (2.0 * nb_months) + 0.5`
+        
+    - `COMMON_RECOMMENDATIONS_WEIGHT = 0.5`
+
+**Results:**
+INFO:root:Predicted score: 0.0705896503752
