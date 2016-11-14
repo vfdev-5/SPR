@@ -107,7 +107,14 @@ def get_next_best_prediction(best, hashes, predicted, cst):
 #     return predictions.astype(np.int)
 
 
-# def compute_recommendations(user, personal_recommendations, profiles, common_recommendations):
+def compute_recommendations_proba(user, personal_recommendations, profiles, common_recommendations):
+    # common_predictions = []
+    # for profile in profiles:
+    #     if profile in common_recommendations:
+    #         for i in range():
+    #             common_predictions.append(common_recommendations[profile][t])
+    return []
+
 
 def compute_predictions_from_common(common_recommendations, profiles, predicted, customer_data):
     # score = [0] * 24
@@ -139,13 +146,15 @@ def compute_predictions(row, get_profiles_func,
     predicted = []
     user = get_user(row)
     profiles = get_profiles_func(row)
+
+    # Get prior predicitions from personal recommendations
+
+
+    # customer_data = None
+    # if user in personal_recommendations:
+    #     customer_data = personal_recommendations[user]['last_choice']
     #
-
-    customer_data = None
-    if user in personal_recommendations:
-        customer_data = personal_recommendations[user]['last_choice']
-
-    predicted = compute_predictions_from_common(common_recommendations, profiles, predicted, customer_data)
+    # predicted = compute_predictions_from_common(common_recommendations, profiles, predicted, customer_data)
 
     # add suggestions from product_stats:
     if len(predicted) < 7:
@@ -341,8 +350,8 @@ def read_data(reader, yearmonth_begin, nb_months, get_profiles_func, return_raw_
             else:
                 break
 
-        # if total > 1000:
-        #     continue
+        if total > 1000:
+            continue
 
         row = clean_data(row)
 
@@ -378,6 +387,16 @@ def personal_recommendations_to_proba(personal_recommendations, nb_months):
         values = personal_recommendations[key]['recommendations']
         proba = np.array(values) / (2.0 * nb_months) + 0.5
         personal_recommendations[key]['recommendations'] = proba
+
+
+def common_recommendations_to_proba(common_recommendations):
+    """
+    """
+    for profile in common_recommendations:
+        total_count = common_recommendations[profile]['total']
+        for choice_index in common_recommendations[profile]:
+            if isinstance(choice_index, int):
+                common_recommendations[profile][choice_index] /= total_count
 
 
 def write_submission(writer, reader, get_profiles_func, personal_recommendations, common_recommendations, product_stats):
@@ -442,6 +461,12 @@ def run_solution():
 
     personal_recommendations_to_proba(personal_recommendations, nb_months_validation)
     personal_recommendations_to_proba(personal_recommendations_validation, nb_months_validation+1)
+
+    common_recommendations_to_proba(common_recommendations)
+    common_recommendations_to_proba(common_recommendations_validation)
+
+    print common_recommendations
+    print personal_recommendations
 
     # Sort product stats:
     product_stats_validation = sorted(product_stats_validation.items(), key=itemgetter(1), reverse=True)
