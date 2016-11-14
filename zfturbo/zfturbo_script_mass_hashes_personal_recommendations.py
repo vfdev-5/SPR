@@ -56,35 +56,6 @@ def apk(actual, predicted, k=7):
 
 ####################################################################################
 
-# def compute_predictions(user, profile, threshold=0.6, verbose=False):
-#     common_predictions = None
-#     if profile in common_recommendations:
-#         common_predictions = []
-#         for t in target_labels:
-#             common_predictions.append(common_recommendations[profile][t])
-#     if verbose: print "Common predictions: ", common_predictions
-#
-#     personal_predictions = None
-#     if user_id in personal_recommendations:
-#         personal_predictions = personal_recommendations[user_id]
-#     if verbose: print "Personal predictions: ", personal_predictions
-#
-#     if common_predictions is not None and personal_predictions is not None:
-#         predictions = np.array(common_predictions) * common_rc_weight + np.array(
-#             personal_predictions) * personal_rc_weight
-#     elif common_predictions is not None:
-#         predictions = np.array(common_predictions)
-#     elif personal_predictions is not None:
-#         predictions = np.array(personal_predictions)
-#     else:
-#         raise Exception("Failed to compute predictions")
-#
-#     if verbose: print "Total predictions: ", predictions
-#
-#     predictions[predictions >= threshold] = 1
-#     predictions[predictions < threshold] = 0
-#     return predictions.astype(np.int)
-
 
 def compute_suggestions(user, personal_recommendations, profiles, common_recommendations):
 
@@ -370,8 +341,8 @@ def read_data(reader, yearmonth_begin, nb_months, get_profiles_func, return_raw_
                 break
 
         ### -------- !!! --------- ###
-        #if total > 250000:
-        #    continue
+        #if total > 1000:
+        #   continue
         ### -------- !!! -------- ###
 
         row = clean_data(row)
@@ -421,9 +392,8 @@ def common_recommendations_to_proba(common_recommendations):
                 common_recommendations[profile][choice_index] /= total_count
 
 
-def write_submission(writer, reader, get_profiles_func, personal_recommendations, common_recommendations, product_stats):
+def write_submission(writer, reader, target_labels, get_profiles_func, personal_recommendations, common_recommendations, product_stats):
 
-    target_labels = get_target_labels(reader.readline())
     total = 0
     writer.write("ncodpers,added_products\n")
 
@@ -444,7 +414,6 @@ def write_submission(writer, reader, get_profiles_func, personal_recommendations
                                         personal_recommendations,
                                         common_recommendations,
                                         product_stats)
-
         for p in predicted:
             writer.write(target_labels[p] + ' ')
 
@@ -460,15 +429,15 @@ def run_solution():
     reader = open("../data/train_ver2.csv", "r")
     target_labels = get_target_labels(reader.readline())
 
-    nb_months_validation = 5
+    nb_months_validation = 16
 
     (personal_recommendations_validation,
      common_recommendations_validation,
      product_stats_validation) = read_data(reader, 201501, nb_months_validation, get_profiles)
 
-    logging.debug("\n common_recommendations_validation : %s " % len(common_recommendations_validation))
-    logging.debug("\n personal_recommendations_validation : %s " % len(personal_recommendations_validation))
-    logging.debug("\n product_stats_validation : %s " %  len(product_stats_validation))
+    logging.debug("-- common_recommendations_validation : %s " % len(common_recommendations_validation))
+    logging.debug("-- personal_recommendations_validation : %s " % len(personal_recommendations_validation))
+    logging.debug("-- product_stats_validation : %s " % len(product_stats_validation))
     
     personal_recommendations = deepcopy(personal_recommendations_validation)
     common_recommendations = deepcopy(common_recommendations_validation)
@@ -477,15 +446,15 @@ def run_solution():
     (personal_recommendations,
      common_recommendations,
      product_stats,
-     validation_data) = read_data(reader, 201507, 1, get_profiles,
+     validation_data) = read_data(reader, 201605, 1, get_profiles,
                                   return_raw_data=True,
                                   personal_recommendations=personal_recommendations,
                                   common_recommendations=common_recommendations,
                                   product_stats=product_stats)
 
-    logging.debug("\n common_recommendations : %s " % len(common_recommendations))
-    logging.debug("\n personal_recommendations : %s " % len(personal_recommendations))
-    logging.debug("\n product_stats : %s " % len(product_stats))
+    logging.debug("-- common_recommendations : %s " % len(common_recommendations))
+    logging.debug("-- personal_recommendations : %s " % len(personal_recommendations))
+    logging.debug("-- product_stats : %s " % len(product_stats))
     
     reader.close()
 
@@ -499,14 +468,9 @@ def run_solution():
     product_stats_validation = sorted(product_stats_validation.items(), key=itemgetter(1), reverse=True)
     product_stats = sorted(product_stats.items(), key=itemgetter(1), reverse=True)
 
-    # Normal
-    #best, overallbest = sort_main_arrays(best, overallbest)
-    # Valid
-    #best_valid, overallbest_valid = sort_main_arrays(best_valid, overallbest_valid)
-
     map7 = 0.0
     logging.info("- Validation")
-    counter = 2
+    # counter = 2
     for row in validation_data:
         predicted = compute_predictions(row, get_profiles,
                                         personal_recommendations_validation,
@@ -529,17 +493,20 @@ def run_solution():
     logging.info("Predicted score: {}".format(map7))
 
     ### ------- ###
-    return
+    # return
     ### ------- ###
 
     logging.info('- Generate submission')
-    submission_file = 'submission_' + \
+    submission_file = '../results/submission_' + \
                       str(datetime.now().strftime("%Y-%m-%d-%H-%M")) + \
                       '.csv'
     writer = open(submission_file, "w")
     reader = open("../data/test_ver2.csv", "r")
 
-    write_submission(writer, reader, get_profiles, personal_recommendations, common_recommendations, product_stats)
+    # skip header:
+    reader.readline()
+
+    write_submission(writer, reader, target_labels, get_profiles, personal_recommendations, common_recommendations, product_stats)
 
     writer.close()
     reader.close()

@@ -71,3 +71,33 @@ INFO:root:Predicted score: 0.040358012212
 
 **Results:**
 INFO:root:Predicted score: 0.0705896503752
+
+
+### Test 6:
+
+**Dataset configuration :**
+    - train : 201505-201509 (full), validation : 201511 (full)
+
+**Options : **
+    - `proba = np.array(values) / (2.0 * nb_months) + 0.5`
+
+    - `COMMON_RECOMMENDATIONS_WEIGHT = 0.5`
+
+**Results:**
+INFO:root:Predicted score: 0.0495554051219
+Kaggle: 0.0161563
+
+
+### Test 7:
+
+**Dataset configuration :**
+    - train : 201501-201604 (full), validation : 201605 (full)
+
+**Options : **
+    - `proba = np.array(values) / (2.0 * nb_months) + 0.5`
+
+    - `COMMON_RECOMMENDATIONS_WEIGHT = 0.5`
+
+**Results:**
+INFO:root:Predicted score: 0.0172339792323
+Kaggle: 0.0163384
