@@ -146,3 +146,9 @@ INFO:root:-- predict_score : personal_recommendations_weight=0.3
 INFO:root:--- predict_score : map7=0.016741842923
 ```
 
+### Test 4
+15/11/2016 : Fix bugs etc
+DEBUG:root:-- predict_score : personal_recommendations_weight=0.7
+DEBUG:root:--- predict_score : map7=0.0220622619839
+INFO:root:Predicted score: 0.0220622619839
+Kaggle: 0.0162049
