@@ -15,66 +15,37 @@ from collections import defaultdict
 from copy import deepcopy
 from operator import itemgetter
 import random
-# import itertools
-import heapq
 import math
 random.seed(2016)
 
 import numpy as np
+import scipy
 
 # Project
 from common import parse_line, get_target_labels, get_choices, get_user, \
-    clean_data, get_age_group_index, get_income_group_index
+    clean_data, process_data, to_yearmonth, apk, get_real_values
 
 #####################################################################
 
-COMMON_RECOMMENDATIONS_WEIGHT = 0.5
-PERSONAL_RECOMMENDATIONS_WEIGHT = 1.0 - COMMON_RECOMMENDATIONS_WEIGHT
-
-#####################################################################
-
-
-def apk(actual, predicted, k=7):
-    
-    #print "APK : ", actual, predicted
-    
-    if len(predicted) > k:
-        predicted = predicted[:k]
-
-    score = 0.0
-    num_hits = 0.0
-
-    for i, p in enumerate(predicted):
-        if p in actual and p not in predicted[:i]:
-            num_hits += 1.0
-            score += num_hits / (i+1.0)
-
-    if not actual:
-        return 0.0
-
-    return score / min(len(actual), k)
+PERSONAL_RECOMMENDATIONS_WEIGHT = 0.7
+COMMON_RECOMMENDATIONS_WEIGHT = 1.0 - PERSONAL_RECOMMENDATIONS_WEIGHT
 
 ####################################################################################
 
 
-def compute_suggestions(user, personal_recommendations, profiles, common_recommendations):
+def compute_product_probas(user, personal_recommendations, profiles, common_recommendations, personal_recommendations_weight):
 
     common_predictions = compute_predictions_from_common(common_recommendations, profiles)
     personal_predictions = compute_predictions_from_personal(user, personal_recommendations)
 
-    suggestions = []
     if common_predictions is not None and personal_predictions is not None:
-        suggestions = COMMON_RECOMMENDATIONS_WEIGHT * common_predictions + PERSONAL_RECOMMENDATIONS_WEIGHT * personal_predictions
+        return (1.0 - personal_recommendations_weight) * common_predictions + personal_recommendations_weight * personal_predictions
     elif personal_predictions is not None:
-        suggestions = personal_predictions
+        return personal_predictions
     elif common_predictions is not None:
-        suggestions = common_predictions
+        return common_predictions
     else:
         return []
-    
-    suggestions = np.argsort(suggestions)[::-1].tolist()
-    #print "\n Suggestions : ", suggestions
-    return suggestions
 
 
 def compute_predictions_from_personal(user, personal_recommendations):
@@ -101,17 +72,17 @@ def compute_predictions_from_common(common_recommendations, profiles):
     for profile in profiles:
         if profile in common_recommendations:
             total_length += len(profile)
-            
+
     if total_length > 0:
-        target_weights = np.zeros((24))
-        
+        target_weights = np.zeros(24)
+
     for profile in profiles:
         if profile in common_recommendations:
             profile_weight = len(profile) * 1.0 / total_length
             for target in common_recommendations[profile]:
                 if isinstance(target, int):
                     target_weights[target] += common_recommendations[profile][target] * profile_weight
-                    
+
     #print "\n\n Common predictions : ", target_weights
     return target_weights
 
@@ -119,31 +90,36 @@ def compute_predictions_from_common(common_recommendations, profiles):
 def compute_predictions(row, get_profiles_func,
                         personal_recommendations,
                         common_recommendations,
-                        product_stats):
+                        product_stats,
+                        personal_recommendations_weight):
     predicted = []
     user = get_user(row)
     profiles = get_profiles_func(row)
-    
+
     last_choice = None
     if user in personal_recommendations:
         last_choice = personal_recommendations[user]['last_choice']
 
     # 
-    suggestions = compute_suggestions(user, personal_recommendations, profiles, common_recommendations)
+    probas = compute_product_probas(user,
+                                    personal_recommendations, profiles,
+                                    common_recommendations,
+                                    personal_recommendations_weight)
 
     # Remove the products from the last choice : 
-    if last_choice is not None:
-        for product in suggestions:
-            if last_choice[product] == 1:
-                suggestions.remove(product)
-    
-    #print "\n Suggestions after last choice : ", suggestions
-   
+    if last_choice is not None and len(probas) > 0:
+        mask = np.abs(last_choice - 1)
+        probas *= mask
+
+    suggestions = np.argsort(probas)[::-1]
+
+    # print "\n Suggestions after last choice : ", suggestions
+
     # add 7 to predicted:
     if len(predicted) < 7:
         l = min(7, len(suggestions))
-        predicted = suggestions[:l]
-    
+        predicted = suggestions[:l].tolist()
+
     #print "\n- PREDICTED : ", predicted
     # add suggestions from product_stats:
     if len(predicted) < 7:
@@ -151,7 +127,6 @@ def compute_predictions(row, get_profiles_func,
             # If user is not new
             if last_choice is not None and last_choice[product[0]] == 1:
                 continue
-
             if product[0] not in predicted:
                 predicted.append(product[0])
                 if len(predicted) == 7:
@@ -161,29 +136,7 @@ def compute_predictions(row, get_profiles_func,
     return predicted
 
 
-def get_real_values(row, personal_recommendations):
-    real = []
-    user = get_user(row)
-    choices = get_choices(row)
-
-    for i, c in enumerate(choices):
-        if c == 1:
-            if user in personal_recommendations:
-                if personal_recommendations[user]['last_choice'][i] == 0:
-                    real.append(i)
-            else:
-                real.append(i)
-    return real
-
-
-def _to_yearmonth(yearmonth_str):
-    yearmonth = int(yearmonth_str[:7].replace('-', ''))
-    return yearmonth
-
-
-def process_data(row):
-    """
-    Method to process data rows (feature engineering)
+def get_profiles(row):
 
     (fecha_dato, ncodpers, ind_empleado,  # 0
      pais_residencia, sexo, age,  # 3
@@ -192,41 +145,29 @@ def process_data(row):
      tiprel_1mes, indresi, indext,  # 12
      conyuemp, canal_entrada, indfall,  # 15
      tipodom, cod_prov, nomprov,  # 18
-     ind_actividad_cliente, renta, segmento)  # 21
-
-    renta -> income group index
-    age -> age group index
-    antiguedad -> int(fecha_dato - fecha_alta)
-
-    """
-    row[22] = get_income_group_index(row[22])
-    row[5] = get_age_group_index(row[5])
-    res = _to_yearmonth(row[0])*0.01 - _to_yearmonth(row[6])*0.01
-    row[8] = int(math.floor(res)) * 12 + int(math.ceil((res - int(res)) * 100))
-    return row
-
-
-def get_profiles(row):
-
-    (fecha_dato, ncodpers, ind_empleado,  # 0
-     pais_residencia, sexo, age_group,  # 3
-     fecha_alta, ind_nuevo, antiguedad,  # 6
-     indrel, ult_fec_cli_1t, indrel_1mes,  # 9
-     tiprel_1mes, indresi, indext,  # 12
-     conyuemp, canal_entrada, indfall,  # 15
-     tipodom, cod_prov, nomprov,  # 18
      ind_actividad_cliente, renta, segmento) = row[:24]
 
     profiles = [
-        #(0, pais_residencia, nomprov, sexo, age_group, renta, segmento, ind_empleado),
-        (1, pais_residencia, nomprov, renta, ind_empleado),
-        (2, sexo, age_group, renta, segmento),
+        ##(0, pais_residencia, nomprov, sexo, age, renta, segmento, ind_empleado),
+        #(1, pais_residencia, nomprov, renta, ind_empleado),
+        #(2, sexo, age, renta, segmento),
+        ##(10, antiguedad, indrel_1mes, indrel, indresi, canal_entrada, ind_actividad_cliente, ind_nuevo),
+        #(11, antiguedad, indrel_1mes, indrel, indresi),
+        #(12, canal_entrada, ind_actividad_cliente, ind_nuevo),
+        #(100, sexo, age, renta, antiguedad, indrel, ind_actividad_cliente),
 
-        #(10, antiguedad, indrel_1mes, indrel, indresi, canal_entrada, ind_actividad_cliente, ind_nuevo),
-        (11, antiguedad, indrel_1mes, indrel, indresi),
-        (12, canal_entrada, ind_actividad_cliente, ind_nuevo),
-
-        #(100, sexo, age_group, renta, antiguedad, indrel, ind_actividad_cliente),
+        ## ZFTurbo
+        (1, pais_residencia, sexo, age, ind_nuevo, segmento, ind_empleado, ind_actividad_cliente, indresi),
+        (2, pais_residencia, sexo, age, segmento, nomprov),
+        (3, pais_residencia, sexo, age, segmento, ncodpers),
+        (4, pais_residencia, sexo, age, segmento, antiguedad),
+        (5, pais_residencia, sexo, age, segmento, ind_nuevo),
+        (6, pais_residencia, sexo, age, segmento, ind_actividad_cliente),
+        (7, pais_residencia, sexo, age, segmento, canal_entrada),
+        (8, pais_residencia, sexo, age, segmento, ind_nuevo,canal_entrada),
+        (9, pais_residencia, sexo, age, segmento, ind_empleado),
+        (10, pais_residencia, sexo, renta, age, segmento),
+        (11, sexo, age, segmento)
     ]
 
     return profiles
@@ -324,8 +265,8 @@ def read_data(reader, yearmonth_begin, nb_months, get_profiles_func, return_raw_
 
         if line == '':
             break
-
         row = parse_line(line)
+
         # data : ['2015-01-28',
         #  user id -> '1375586',
         #  profile -> 'N', 'ES', 'H', '35', '2015-01-12', '0', '6', '1', '', '1.0', 'A', 'S', 'N', '', 'KHL', 'N', '1', '29', 'MALAGA', '1', '87218.1', '02 - PARTICULARES',
@@ -333,7 +274,7 @@ def read_data(reader, yearmonth_begin, nb_months, get_profiles_func, return_raw_
 
         yearmonth_str = row[0][:7]
         if yearmonth_str not in dates:
-            yearmonth = _to_yearmonth(yearmonth_str)
+            yearmonth = to_yearmonth(yearmonth_str)
             if yearmonth - yearmonth_begin < 0:
                 total = 0
                 continue
@@ -392,7 +333,12 @@ def common_recommendations_to_proba(common_recommendations):
                 common_recommendations[profile][choice_index] /= total_count
 
 
-def write_submission(writer, reader, target_labels, get_profiles_func, personal_recommendations, common_recommendations, product_stats):
+def write_submission(writer, reader, target_labels,
+                     get_profiles_func,
+                     personal_recommendations,
+                     common_recommendations,
+                     product_stats,
+                     personal_recommendations_weight):
 
     total = 0
     writer.write("ncodpers,added_products\n")
@@ -413,7 +359,7 @@ def write_submission(writer, reader, target_labels, get_profiles_func, personal_
                                         get_profiles_func,
                                         personal_recommendations,
                                         common_recommendations,
-                                        product_stats)
+                                        product_stats, personal_recommendations_weight)
         for p in predicted:
             writer.write(target_labels[p] + ' ')
 
@@ -423,10 +369,36 @@ def write_submission(writer, reader, target_labels, get_profiles_func, personal_
         writer.write("\n")
 
 
-def run_solution():
+def predict_score(validation_data, get_profiles_func,
+                  personal_recommendations,
+                  common_recommendations,
+                  product_stats,
+                  personal_recommendations_weight):
+    logging.debug("-- predict_score : personal_recommendations_weight=%s" % personal_recommendations_weight)
+    map7 = 0.0
+    for row in validation_data:
+        predicted = compute_predictions(row, get_profiles_func,
+                                        personal_recommendations,
+                                        common_recommendations,
+                                        product_stats,
+                                        personal_recommendations_weight)
+
+        real = get_real_values(row, personal_recommendations)
+
+        score = apk(real, predicted)
+        map7 += score
+
+    if len(validation_data) > 0:
+        map7 /= len(validation_data)
+
+    logging.debug("--- predict_score : map7=%s" % map7)
+    return map7
+
+
+def run_solution(train_filename, test_filename):
 
     logging.info('--- Run solution ---')
-    reader = open("../data/train_ver2.csv", "r")
+    reader = open(train_filename, "r")
     target_labels = get_target_labels(reader.readline())
 
     nb_months_validation = 4
@@ -438,7 +410,7 @@ def run_solution():
     logging.debug("-- common_recommendations_validation : %s " % len(common_recommendations_validation))
     logging.debug("-- personal_recommendations_validation : %s " % len(personal_recommendations_validation))
     logging.debug("-- product_stats_validation : %s " % len(product_stats_validation))
-    
+
     personal_recommendations = deepcopy(personal_recommendations_validation)
     common_recommendations = deepcopy(common_recommendations_validation)
     product_stats = deepcopy(product_stats_validation)
@@ -455,7 +427,7 @@ def run_solution():
     logging.debug("-- common_recommendations : %s " % len(common_recommendations))
     logging.debug("-- personal_recommendations : %s " % len(personal_recommendations))
     logging.debug("-- product_stats : %s " % len(product_stats))
-    
+
     reader.close()
 
     personal_recommendations_to_proba(personal_recommendations, nb_months_validation)
@@ -468,45 +440,36 @@ def run_solution():
     product_stats_validation = sorted(product_stats_validation.items(), key=itemgetter(1), reverse=True)
     product_stats = sorted(product_stats.items(), key=itemgetter(1), reverse=True)
 
-    map7 = 0.0
     logging.info("- Validation")
-    # counter = 2
-    for row in validation_data:
-        predicted = compute_predictions(row, get_profiles,
-                                        personal_recommendations_validation,
-                                        common_recommendations_validation,
-                                        product_stats_validation)
-
-        real = get_real_values(row, personal_recommendations_validation)
-
-        score = apk(real, predicted)
-        map7 += score
-        ### !!!!!!!! ###
-        #counter -= 1
-        #if counter == 0:
-        #    break
-        ### !!!!!!!! ###
-
-    if len(validation_data) > 0:
-        map7 /= len(validation_data)
+    map7 = predict_score(validation_data,
+                         get_profiles,
+                         personal_recommendations_validation,
+                         common_recommendations_validation,
+                         product_stats_validation,
+                         PERSONAL_RECOMMENDATIONS_WEIGHT)
 
     logging.info("Predicted score: {}".format(map7))
 
-    ### ------- ###
-    # return
-    ### ------- ###
+    if test_filename is None:
+        return
 
     logging.info('- Generate submission')
     submission_file = '../results/submission_' + \
                       str(datetime.now().strftime("%Y-%m-%d-%H-%M")) + \
                       '.csv'
     writer = open(submission_file, "w")
-    reader = open("../data/test_ver2.csv", "r")
+    reader = open(test_filename, "r")
 
     # skip header:
     reader.readline()
 
-    write_submission(writer, reader, target_labels, get_profiles, personal_recommendations, common_recommendations, product_stats)
+    write_submission(writer, reader,
+                     target_labels,
+                     get_profiles,
+                     personal_recommendations,
+                     common_recommendations,
+                     product_stats,
+                     PERSONAL_RECOMMENDATIONS_WEIGHT)
 
     writer.close()
     reader.close()
@@ -514,6 +477,11 @@ def run_solution():
 #####################################################################
 
 if __name__ == "__main__":
-    run_solution()
+
+    # train_filename = "../data/train_ver2.csv"
+    train_filename = "../data/train_ver2_201601-201605.csv"
+    test_filename = "../data/test_ver2.csv"
+    # test_filename = None
+    run_solution(train_filename, test_filename)
 
 #####################################################################

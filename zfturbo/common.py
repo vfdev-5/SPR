@@ -3,6 +3,7 @@
 # Common methods for scripts of ZFTurbo
 #
 
+import math
 from collections import defaultdict
 
 import pandas as pd
@@ -16,8 +17,8 @@ INCOMES_STATS_DF.loc[INCOMES_STATS_DF['sexo'].isnull(), 'sexo'] = "NA"
 
 INCOMES_STATS_MAP = defaultdict(list)
 for index in INCOMES_STATS_DF.index:
-    row = INCOMES_STATS_DF.loc[index]
-    INCOMES_STATS_MAP[tuple(row.values[:-1])] = row['renta']
+    _row = INCOMES_STATS_DF.loc[index]
+    INCOMES_STATS_MAP[tuple(_row.values[:-1])] = _row['renta']
 
 #
 # INCOMES_STATS_MAP = map between
@@ -101,8 +102,11 @@ def parse_line(line):
     :param line:
     :return: array of values
     """
-    tmp1 = line.split("\"")
-    arr = tmp1[0][:-1].split(",") + [tmp1[1]] + tmp1[2][1:].split(',')
+    if "\"" in line:
+        tmp1 = line.split("\"")
+        arr = tmp1[0][:-1].split(",") + [tmp1[1]] + tmp1[2][1:].split(',')
+    else:
+        arr = line.split(",")
     arr = [a.strip() for a in arr]
     return arr
 
@@ -219,3 +223,69 @@ def clean_data(row):
         else:
             row[22] = -99.0
     return row
+
+
+def to_yearmonth(yearmonth_str):
+    yearmonth = int(yearmonth_str[:7].replace('-', ''))
+    return yearmonth
+
+
+def process_data(row):
+    """
+    Method to process data rows (feature engineering)
+
+    (fecha_dato, ncodpers, ind_empleado,  # 0
+     pais_residencia, sexo, age,  # 3
+     fecha_alta, ind_nuevo, antiguedad,  # 6
+     indrel, ult_fec_cli_1t, indrel_1mes,  # 9
+     tiprel_1mes, indresi, indext,  # 12
+     conyuemp, canal_entrada, indfall,  # 15
+     tipodom, cod_prov, nomprov,  # 18
+     ind_actividad_cliente, renta, segmento)  # 21
+
+    renta -> income group index
+    age -> age group index
+    antiguedad -> int(fecha_dato - fecha_alta)
+
+    """
+    row[22] = get_income_group_index(row[22])
+    row[5] = get_age_group_index(row[5])
+    res = to_yearmonth(row[0])*0.01 - to_yearmonth(row[6])*0.01
+    row[8] = int(math.floor(res)) * 12 + int(math.ceil((res - int(res)) * 100))
+    return row
+
+
+def apk(actual, predicted, k=7):
+    # print "APK : ", actual, predicted
+
+    if len(predicted) > k:
+        predicted = predicted[:k]
+
+    score = 0.0
+    num_hits = 0.0
+
+    for i, p in enumerate(predicted):
+        if p in actual and p not in predicted[:i]:
+            num_hits += 1.0
+            score += num_hits / (i + 1.0)
+
+    if not actual:
+        return 0.0
+
+    return score / min(len(actual), k)
+
+
+def get_real_values(row, personal_recommendations):
+    real = []
+    user = get_user(row)
+    choices = get_choices(row)
+
+    for i, c in enumerate(choices):
+        if c == 1:
+            if user in personal_recommendations:
+                if personal_recommendations[user]['last_choice'][i] == 0:
+                    real.append(i)
+            else:
+                real.append(i)
+    return real
+
