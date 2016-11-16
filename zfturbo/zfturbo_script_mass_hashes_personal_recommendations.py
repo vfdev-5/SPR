@@ -73,10 +73,12 @@ def compute_predictions_from_common(common_recommendations, profiles):
     target_weights = None
     total_length = 0.0
     total_count = 0
+    max_length = 0
     # compute a total length to of participating profiles to define profile weight
     for profile in profiles:
         if profile in common_recommendations:
             total_length += len(profile)
+            max_length = max(len(profile), max_length)
             total_count += 1
 
     if total_length > 0:
@@ -87,18 +89,25 @@ def compute_predictions_from_common(common_recommendations, profiles):
             profile_weight = len(profile) * 1.0 / total_length
             # _common_recommendations[profile].items() -> [(target, proba)]
             target_probas = sorted(common_recommendations[profile].items(), key=itemgetter(1), reverse=True)
-            target_total_score = (24.0 + len(profile)) * total_count
+            # target_total_score = (25.0 + len(profile)) * total_count
+            target_total_score = (25.0 + max_length) * total_count
             for i, target_proba in enumerate(target_probas):
-                target_score = 24 - i + len(profile)
+                target_score = 25.0 - i + len(profile)  # 24 + 'total'
                 target = target_proba[0]
                 proba = target_proba[1]
                 if isinstance(target, int):
-                    p1 = common_recommendations[profile][target] * profile_weight * MINE_COMMON_WEIGHT
+                    p1 = proba * profile_weight * MINE_COMMON_WEIGHT
                     p2 = target_score * 1.0 / target_total_score * ZFTURBO_COMMON_WEIGHT
                     target_weights[target] += p1 + p2
 
-    #print "\n\n Common predictions : ", target_weights
     return target_weights
+
+
+def get_last_choice(user, personal_recommendations):
+    last_choice = None
+    if user in personal_recommendations:
+        last_choice = personal_recommendations[user]['last_choice']
+    return last_choice
 
 
 def compute_predictions(row, get_profiles_func,
@@ -110,9 +119,7 @@ def compute_predictions(row, get_profiles_func,
     user = get_user(row)
     profiles = get_profiles_func(row)
 
-    last_choice = None
-    if user in personal_recommendations:
-        last_choice = personal_recommendations[user]['last_choice']
+    last_choice = get_last_choice(user, personal_recommendations)
 
     # 
     probas = compute_product_probas(user,
@@ -125,14 +132,21 @@ def compute_predictions(row, get_profiles_func,
         mask = np.abs(last_choice - 1)
         probas *= mask
 
-    suggestions = np.argsort(probas)[::-1]
+    if len(probas) > 0:
+        # suggestions = np.argsort(probas)[::-1]  # equal elements do not have the correct ordering, dunno why
+        # probas -> int( probas  * 1000 ) before ordering
+        probas_int = (probas * 1000).astype(np.int)
+        suggestions = sorted(range(len(probas_int)), key=probas_int.__getitem__, reverse=True)
+    else:
+        suggestions = []
 
     # print "\n Suggestions after last choice : ", suggestions
 
     # add 7 to predicted:
     if len(predicted) < 7:
         l = min(7, len(suggestions))
-        predicted = suggestions[:l].tolist()
+        #predicted = suggestions[:l].tolist()
+        predicted = suggestions[:l]
 
     #print "\n- PREDICTED : ", predicted
     # add suggestions from product_stats:
@@ -161,6 +175,31 @@ def get_profiles(row):
      tipodom, cod_prov, nomprov,  # 18
      ind_actividad_cliente, renta, segmento) = row[:24]
 
+    if renta == '' or renta == 'NA':
+        renta1 = '-1'
+    elif float(renta) < 45542.97:
+        renta1 = '1'
+    elif float(renta) < 57629.67:
+        renta1 = '2'
+    elif float(renta) < 68211.78:
+        renta1 = '3'
+    elif float(renta) < 78852.39:
+        renta1 = '4'
+    elif float(renta) < 90461.97:
+        renta1 = '5'
+    elif float(renta) < 103855.23:
+        renta1 = '6'
+    elif float(renta) < 120063.00:
+        renta1 = '7'
+    elif float(renta) < 141347.49:
+        renta1 = '8'
+    elif float(renta) < 173418.36:
+        renta1 = '9'
+    elif float(renta) < 234687.12:
+        renta1 = '10'
+    else:
+        renta1 = '11'
+
     profiles = [
         ##(0, pais_residencia, nomprov, sexo, age, renta, segmento, ind_empleado),
         #(1, pais_residencia, nomprov, renta, ind_empleado),
@@ -180,21 +219,24 @@ def get_profiles(row):
         (7, pais_residencia, sexo, age, segmento, canal_entrada),
         (8, pais_residencia, sexo, age, segmento, ind_nuevo,canal_entrada),
         (9, pais_residencia, sexo, age, segmento, ind_empleado),
-        (10, pais_residencia, sexo, renta, age, segmento),
+        (10, pais_residencia, sexo, renta1, age, segmento),
         (11, sexo, age, segmento)
     ]
 
     return profiles
 
 
-def update_common_recommendations(common_recommendations, row, get_profiles_func):
+def update_common_recommendations(common_recommendations, row, get_profiles_func, last_choice):
     profiles = get_profiles_func(row)
     choices = get_choices(row)
     for profile in profiles:
         # Update common recommendations
         for i, t in enumerate(choices):
-            if t > 0:
-                common_recommendations[profile][i] += 1
+            if t == 1:
+                if last_choice is not None and last_choice[i] == 0:
+                    common_recommendations[profile][i] += 1
+                else:
+                    common_recommendations[profile][i] += 1
         common_recommendations[profile]['total'] += 1
 
 
@@ -214,12 +256,15 @@ def update_personal_recommendations(personal_recommendations, row):
     personal_recommendations[user]['last_choice'] = choices
 
 
-def update_product_stats(product_stats, row):
+def update_product_stats(product_stats, row, last_choice):
     choices = get_choices(row)
     for i, t in enumerate(choices):
         # Update product statistics
-        if t > 0:
-            product_stats[i] += 1
+        if t == 1:
+            if last_choice is not None and last_choice[i] == 0:
+                product_stats[i] += 1
+            else:
+                product_stats[i] += 1
 
 
 def read_data(reader, yearmonth_begin, nb_months, get_profiles_func, return_raw_data=False,
@@ -295,11 +340,6 @@ def read_data(reader, yearmonth_begin, nb_months, get_profiles_func, return_raw_
             else:
                 break
 
-        ### -------- !!! --------- ###
-        #if total > 1000:
-        #   continue
-        ### -------- !!! -------- ###
-
         row = clean_data(row)
 
         if len(row) == 0:
@@ -311,9 +351,10 @@ def read_data(reader, yearmonth_begin, nb_months, get_profiles_func, return_raw_
 
         processed_row = process_data(row)
 
-        update_common_recommendations(common_recommendations, processed_row, get_profiles_func)
+        last_choice = get_last_choice(get_user(processed_row), personal_recommendations)
+        update_common_recommendations(common_recommendations, processed_row, get_profiles_func, last_choice)
+        update_product_stats(product_stats, row, last_choice)
         update_personal_recommendations(personal_recommendations, processed_row)
-        update_product_stats(product_stats, row)
 
         if total % 100000 == 0:
             logging.info('-- Processed {} lines . Current month : {}'.format(total, yearmonth_str))
@@ -365,6 +406,7 @@ def write_submission(writer, reader, target_labels,
             break
 
         row = parse_line(line)
+        row = process_data(row)
 
         user = get_user(row)
         writer.write(user + ',')
@@ -391,6 +433,8 @@ def predict_score(validation_data, get_profiles_func,
     logging.debug("-- predict_score : personal_recommendations_weight=%s" % personal_recommendations_weight)
     map7 = 0.0
     for row in validation_data:
+
+        row = process_data(row)
         predicted = compute_predictions(row, get_profiles_func,
                                         personal_recommendations,
                                         common_recommendations,
@@ -415,11 +459,11 @@ def run_solution(train_filename, test_filename):
     reader = open(train_filename, "r")
     target_labels = get_target_labels(reader.readline())
 
-    nb_months_validation = 16
+    nb_months_validation = 1
 
     (personal_recommendations_validation,
      common_recommendations_validation,
-     product_stats_validation) = read_data(reader, 201501, nb_months_validation, get_profiles)
+     product_stats_validation) = read_data(reader, 201601, nb_months_validation, get_profiles)
 
     logging.debug("-- common_recommendations_validation : %s " % len(common_recommendations_validation))
     logging.debug("-- personal_recommendations_validation : %s " % len(personal_recommendations_validation))
@@ -494,8 +538,13 @@ if __name__ == "__main__":
 
     train_filename = "../data/train_ver2.csv"
     # train_filename = "../data/train_ver2_201601-201605.csv"
+
     test_filename = "../data/test_ver2.csv"
     # test_filename = None
+
+    if train_filename == "../data/train_ver2.csv" and test_filename is None:
+        raise Exception("Is this really what you want ?")
+
     run_solution(train_filename, test_filename)
 
 #####################################################################

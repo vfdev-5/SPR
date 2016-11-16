@@ -164,5 +164,6 @@ Kaggle: 0.0147564
 ### Test 6
 201501-201604 : Only ZFTurbo
 DEBUG:root:-- predict_score : personal_recommendations_weight=0.0
-DEBUG:root:--- predict_score : map7=0.0215788389906
-INFO:root:Predicted score: 0.0215788389906
+DEBUG:root:--- predict_score : map7=0.0216372881153
+INFO:root:Predicted score: 0.0216372881153
+Kaggle: 0.0147564
