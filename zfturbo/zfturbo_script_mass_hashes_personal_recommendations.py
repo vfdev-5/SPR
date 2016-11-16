@@ -27,8 +27,12 @@ from common import parse_line, get_target_labels, get_choices, get_user, \
 
 #####################################################################
 
-PERSONAL_RECOMMENDATIONS_WEIGHT = 0.7
+PERSONAL_RECOMMENDATIONS_WEIGHT = 0.0
 COMMON_RECOMMENDATIONS_WEIGHT = 1.0 - PERSONAL_RECOMMENDATIONS_WEIGHT
+
+ZFTURBO_COMMON_WEIGHT = 1.0
+MINE_COMMON_WEIGHT = 1.0 - ZFTURBO_COMMON_WEIGHT
+
 
 ####################################################################################
 
@@ -68,10 +72,12 @@ def compute_predictions_from_common(common_recommendations, profiles):
     """
     target_weights = None
     total_length = 0.0
+    total_count = 0
     # compute a total length to of participating profiles to define profile weight
     for profile in profiles:
         if profile in common_recommendations:
             total_length += len(profile)
+            total_count += 1
 
     if total_length > 0:
         target_weights = np.zeros(24)
@@ -79,9 +85,17 @@ def compute_predictions_from_common(common_recommendations, profiles):
     for profile in profiles:
         if profile in common_recommendations:
             profile_weight = len(profile) * 1.0 / total_length
-            for target in common_recommendations[profile]:
+            # _common_recommendations[profile].items() -> [(target, proba)]
+            target_probas = sorted(common_recommendations[profile].items(), key=itemgetter(1), reverse=True)
+            target_total_score = (24.0 + len(profile)) * total_count
+            for i, target_proba in enumerate(target_probas):
+                target_score = 24 - i + len(profile)
+                target = target_proba[0]
+                proba = target_proba[1]
                 if isinstance(target, int):
-                    target_weights[target] += common_recommendations[profile][target] * profile_weight
+                    p1 = common_recommendations[profile][target] * profile_weight * MINE_COMMON_WEIGHT
+                    p2 = target_score * 1.0 / target_total_score * ZFTURBO_COMMON_WEIGHT
+                    target_weights[target] += p1 + p2
 
     #print "\n\n Common predictions : ", target_weights
     return target_weights
@@ -401,11 +415,11 @@ def run_solution(train_filename, test_filename):
     reader = open(train_filename, "r")
     target_labels = get_target_labels(reader.readline())
 
-    nb_months_validation = 4
+    nb_months_validation = 16
 
     (personal_recommendations_validation,
      common_recommendations_validation,
-     product_stats_validation) = read_data(reader, 201601, nb_months_validation, get_profiles)
+     product_stats_validation) = read_data(reader, 201501, nb_months_validation, get_profiles)
 
     logging.debug("-- common_recommendations_validation : %s " % len(common_recommendations_validation))
     logging.debug("-- personal_recommendations_validation : %s " % len(personal_recommendations_validation))
@@ -478,8 +492,8 @@ def run_solution(train_filename, test_filename):
 
 if __name__ == "__main__":
 
-    # train_filename = "../data/train_ver2.csv"
-    train_filename = "../data/train_ver2_201601-201605.csv"
+    train_filename = "../data/train_ver2.csv"
+    # train_filename = "../data/train_ver2_201601-201605.csv"
     test_filename = "../data/test_ver2.csv"
     # test_filename = None
     run_solution(train_filename, test_filename)

@@ -148,7 +148,21 @@ INFO:root:--- predict_score : map7=0.016741842923
 
 ### Test 4
 15/11/2016 : Fix bugs etc
+201601-201604
 DEBUG:root:-- predict_score : personal_recommendations_weight=0.7
 DEBUG:root:--- predict_score : map7=0.0220622619839
 INFO:root:Predicted score: 0.0220622619839
 Kaggle: 0.0162049
+
+### Test 5
+201501-201604
+DEBUG:root:-- predict_score : personal_recommendations_weight=0.7
+DEBUG:root:--- predict_score : map7=0.022
+INFO:root:Predicted score: 0.022
+Kaggle: 0.0147564
+
+### Test 6
+201501-201604 : Only ZFTurbo
+DEBUG:root:-- predict_score : personal_recommendations_weight=0.0
+DEBUG:root:--- predict_score : map7=0.0215788389906
+INFO:root:Predicted score: 0.0215788389906
