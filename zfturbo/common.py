@@ -5,7 +5,7 @@
 
 import math
 from collections import defaultdict
-
+import copy
 import pandas as pd
 
 MEAN_AGE_18_30 = 23
@@ -137,10 +137,11 @@ def get_choices(row):
     return row[24:]
 
 
-def clean_data(row):
+def clean_data(input_row):
     """
     Method to clean data rows
     """
+    row = copy.deepcopy(input_row)
     # Replace empty values by NA
     for i, c in enumerate(row):
         if c == '':
@@ -230,7 +231,7 @@ def to_yearmonth(yearmonth_str):
     return yearmonth
 
 
-def process_data(row):
+def process_data(input_row):
     """
     Method to process data rows (feature engineering)
 
@@ -248,6 +249,7 @@ def process_data(row):
     antiguedad -> int(fecha_dato - fecha_alta)
 
     """
+    row = copy.deepcopy(input_row)
     row[22] = get_income_group_index(row[22])
     row[5] = get_age_group_index(row[5])
     res = to_yearmonth(row[0])*0.01 - to_yearmonth(row[6])*0.01

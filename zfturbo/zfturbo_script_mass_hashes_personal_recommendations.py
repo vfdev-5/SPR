@@ -406,6 +406,7 @@ def write_submission(writer, reader, target_labels,
             break
 
         row = parse_line(line)
+        row = clean_data(row)
         row = process_data(row)
 
         user = get_user(row)
@@ -459,11 +460,11 @@ def run_solution(train_filename, test_filename):
     reader = open(train_filename, "r")
     target_labels = get_target_labels(reader.readline())
 
-    nb_months_validation = 1
+    nb_months_validation = 16
 
     (personal_recommendations_validation,
      common_recommendations_validation,
-     product_stats_validation) = read_data(reader, 201601, nb_months_validation, get_profiles)
+     product_stats_validation) = read_data(reader, 201501, nb_months_validation, get_profiles)
 
     logging.debug("-- common_recommendations_validation : %s " % len(common_recommendations_validation))
     logging.debug("-- personal_recommendations_validation : %s " % len(personal_recommendations_validation))
