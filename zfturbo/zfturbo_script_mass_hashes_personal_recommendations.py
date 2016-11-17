@@ -23,7 +23,7 @@ import scipy
 
 # Project
 from common import parse_line, get_target_labels, get_choices, get_user, \
-    clean_data, process_data, to_yearmonth, apk, get_real_values
+    process_row, to_yearmonth, apk, get_real_values
 
 #####################################################################
 
@@ -175,30 +175,30 @@ def get_profiles(row):
      tipodom, cod_prov, nomprov,  # 18
      ind_actividad_cliente, renta, segmento) = row[:24]
 
-    if renta == '' or renta == 'NA':
-        renta1 = '-1'
-    elif float(renta) < 45542.97:
-        renta1 = '1'
-    elif float(renta) < 57629.67:
-        renta1 = '2'
-    elif float(renta) < 68211.78:
-        renta1 = '3'
-    elif float(renta) < 78852.39:
-        renta1 = '4'
-    elif float(renta) < 90461.97:
-        renta1 = '5'
-    elif float(renta) < 103855.23:
-        renta1 = '6'
-    elif float(renta) < 120063.00:
-        renta1 = '7'
-    elif float(renta) < 141347.49:
-        renta1 = '8'
-    elif float(renta) < 173418.36:
-        renta1 = '9'
-    elif float(renta) < 234687.12:
-        renta1 = '10'
-    else:
-        renta1 = '11'
+    # if renta == '' or renta == 'NA':
+    #     renta1 = '-1'
+    # elif float(renta) < 45542.97:
+    #     renta1 = '1'
+    # elif float(renta) < 57629.67:
+    #     renta1 = '2'
+    # elif float(renta) < 68211.78:
+    #     renta1 = '3'
+    # elif float(renta) < 78852.39:
+    #     renta1 = '4'
+    # elif float(renta) < 90461.97:
+    #     renta1 = '5'
+    # elif float(renta) < 103855.23:
+    #     renta1 = '6'
+    # elif float(renta) < 120063.00:
+    #     renta1 = '7'
+    # elif float(renta) < 141347.49:
+    #     renta1 = '8'
+    # elif float(renta) < 173418.36:
+    #     renta1 = '9'
+    # elif float(renta) < 234687.12:
+    #     renta1 = '10'
+    # else:
+    #     renta1 = '11'
 
     profiles = [
         ##(0, pais_residencia, nomprov, sexo, age, renta, segmento, ind_empleado),
@@ -219,7 +219,7 @@ def get_profiles(row):
         (7, pais_residencia, sexo, age, segmento, canal_entrada),
         (8, pais_residencia, sexo, age, segmento, ind_nuevo,canal_entrada),
         (9, pais_residencia, sexo, age, segmento, ind_empleado),
-        (10, pais_residencia, sexo, renta1, age, segmento),
+        (10, pais_residencia, sexo, renta, age, segmento),
         (11, sexo, age, segmento)
     ]
 
@@ -267,7 +267,9 @@ def update_product_stats(product_stats, row, last_choice):
                 product_stats[i] += 1
 
 
-def read_data(reader, yearmonth_begin, nb_months, get_profiles_func, return_raw_data=False,
+def read_data(reader, yearmonth_begin, nb_months,
+              process_row_func, get_profiles_func,
+              return_raw_data=False,
               personal_recommendations=None, common_recommendations=None, product_stats=None):
     """
     :param reader:
@@ -340,20 +342,18 @@ def read_data(reader, yearmonth_begin, nb_months, get_profiles_func, return_raw_
             else:
                 break
 
-        row = clean_data(row)
-
-        if len(row) == 0:
-            removed_rows += 1
-            continue
-
         if return_raw_data:
             raw_data.append(row)
 
-        processed_row = process_data(row)
+        processed_row = process_row_func(row)
+
+        if processed_row is None or len(processed_row) == 0:
+            removed_rows += 1
+            continue
 
         last_choice = get_last_choice(get_user(processed_row), personal_recommendations)
         update_common_recommendations(common_recommendations, processed_row, get_profiles_func, last_choice)
-        update_product_stats(product_stats, row, last_choice)
+        update_product_stats(product_stats, processed_row, last_choice)
         update_personal_recommendations(personal_recommendations, processed_row)
 
         if total % 100000 == 0:
@@ -389,6 +389,7 @@ def common_recommendations_to_proba(common_recommendations):
 
 
 def write_submission(writer, reader, target_labels,
+                     process_row_func,
                      get_profiles_func,
                      personal_recommendations,
                      common_recommendations,
@@ -406,8 +407,7 @@ def write_submission(writer, reader, target_labels,
             break
 
         row = parse_line(line)
-        row = clean_data(row)
-        row = process_data(row)
+        row = process_row_func(row)
 
         user = get_user(row)
         writer.write(user + ',')
@@ -426,7 +426,9 @@ def write_submission(writer, reader, target_labels,
         writer.write("\n")
 
 
-def predict_score(validation_data, get_profiles_func,
+def predict_score(validation_data,
+                  process_row_func,
+                  get_profiles_func,
                   personal_recommendations,
                   common_recommendations,
                   product_stats,
@@ -435,7 +437,7 @@ def predict_score(validation_data, get_profiles_func,
     map7 = 0.0
     for row in validation_data:
 
-        row = process_data(row)
+        row = process_row_func(row)
         predicted = compute_predictions(row, get_profiles_func,
                                         personal_recommendations,
                                         common_recommendations,
@@ -460,11 +462,18 @@ def run_solution(train_filename, test_filename):
     reader = open(train_filename, "r")
     target_labels = get_target_labels(reader.readline())
 
-    nb_months_validation = 16
+    # Read data and create recommendations structures
 
+    nb_months_validation = 1
     (personal_recommendations_validation,
      common_recommendations_validation,
-     product_stats_validation) = read_data(reader, 201501, nb_months_validation, get_profiles)
+     product_stats_validation) = read_data(reader, 201501, nb_months_validation,
+                                           process_row, get_profiles)
+
+    ###
+    reader.close()
+    return
+    ###
 
     logging.debug("-- common_recommendations_validation : %s " % len(common_recommendations_validation))
     logging.debug("-- personal_recommendations_validation : %s " % len(personal_recommendations_validation))
@@ -477,7 +486,9 @@ def run_solution(train_filename, test_filename):
     (personal_recommendations,
      common_recommendations,
      product_stats,
-     validation_data) = read_data(reader, 201605, 1, get_profiles,
+     validation_data) = read_data(reader, 201605, 1,
+                                  process_row,
+                                  get_profiles,
                                   return_raw_data=True,
                                   personal_recommendations=personal_recommendations,
                                   common_recommendations=common_recommendations,
@@ -499,8 +510,11 @@ def run_solution(train_filename, test_filename):
     product_stats_validation = sorted(product_stats_validation.items(), key=itemgetter(1), reverse=True)
     product_stats = sorted(product_stats.items(), key=itemgetter(1), reverse=True)
 
+    # Run validation
+
     logging.info("- Validation")
     map7 = predict_score(validation_data,
+                         process_row,
                          get_profiles,
                          personal_recommendations_validation,
                          common_recommendations_validation,
@@ -524,6 +538,7 @@ def run_solution(train_filename, test_filename):
 
     write_submission(writer, reader,
                      target_labels,
+                     process_row,
                      get_profiles,
                      personal_recommendations,
                      common_recommendations,

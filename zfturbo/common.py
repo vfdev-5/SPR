@@ -138,10 +138,16 @@ def get_choices(row):
 
 
 def clean_data(input_row):
+    row = copy.deepcopy(input_row)
+    clean_data_inplace(row)
+    return row
+
+
+def clean_data_inplace(row):
     """
     Method to clean data rows
     """
-    row = copy.deepcopy(input_row)
+
     # Replace empty values by NA
     for i, c in enumerate(row):
         if c == '':
@@ -160,12 +166,12 @@ def clean_data(input_row):
     if len(fecha_alta) + len(age) + len(ind_empleado) + len(pais_residencia) + len(sexo) == len('NA')*5:
         # remove data
         #logging.debug("Remove unknown user %s" % row[1])
-        return []
+        return False
 
     # Remove clients not staying in Spain with known (spanish) nomprov
     if nomprov != "NA" and pais_residencia != "ES":
         # remove data
-        return []
+        return False
 
     # Convert to types :
     row[1] = int(ncodpers)
@@ -223,7 +229,8 @@ def clean_data(input_row):
             row[22] = INCOMES_STATS_MAP[key]
         else:
             row[22] = -99.0
-    return row
+
+    return True
 
 
 def to_yearmonth(yearmonth_str):
@@ -232,6 +239,12 @@ def to_yearmonth(yearmonth_str):
 
 
 def process_data(input_row):
+    row = copy.deepcopy(input_row)
+    process_data_inplace(row)
+    return row
+
+
+def process_data_inplace(row):
     """
     Method to process data rows (feature engineering)
 
@@ -249,12 +262,18 @@ def process_data(input_row):
     antiguedad -> int(fecha_dato - fecha_alta)
 
     """
-    row = copy.deepcopy(input_row)
     row[22] = get_income_group_index(row[22])
     row[5] = get_age_group_index(row[5])
     res = to_yearmonth(row[0])*0.01 - to_yearmonth(row[6])*0.01
     row[8] = int(math.floor(res)) * 12 + int(math.ceil((res - int(res)) * 100))
-    return row
+
+
+def process_row(input_row):
+    row = copy.deepcopy(input_row)
+    if clean_data_inplace(row):
+        process_data_inplace(row)
+        return row
+    return []
 
 
 def apk(actual, predicted, k=7):
