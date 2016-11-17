@@ -5,7 +5,6 @@
 
 import math
 from collections import defaultdict
-import copy
 import pandas as pd
 
 MEAN_AGE_18_30 = 23
@@ -138,7 +137,7 @@ def get_choices(row):
 
 
 def clean_data(input_row):
-    row = copy.deepcopy(input_row)
+    row = list(input_row)
     clean_data_inplace(row)
     return row
 
@@ -147,10 +146,11 @@ def clean_data_inplace(row):
     """
     Method to clean data rows
     """
-
+    ll = len(row)
+    row_indices = range(ll)
     # Replace empty values by NA
-    for i, c in enumerate(row):
-        if c == '':
+    for i in row_indices:
+        if row[i] == '':
             row[i] = "NA"
 
     (fecha_dato, ncodpers, ind_empleado,  # 0
@@ -175,11 +175,11 @@ def clean_data_inplace(row):
 
     # Convert to types :
     row[1] = int(ncodpers)
-    row[5] = int(age) if age != "NA" else MEAN_AGE
+    # row[5] = int(age) if age != "NA" else MEAN_AGE
     row[22] = float(renta) if renta != "NA" else renta
     row[11] = str(int(float(indrel_1mes))) if len(indrel_1mes) == 3 else indrel_1mes  # Remove floating point at string indrel_1mes
 
-    for i in range(24, len(row)):
+    for i in range(24, ll):
         row[i] = int(row[i]) if row[i] != "NA" else 0
 
     (fecha_dato, ncodpers, ind_empleado,  # 0
@@ -196,10 +196,10 @@ def clean_data_inplace(row):
         row[20] = "CORUNA"
 
     # Clamp age
-    if age < 18:
-        row[5] = MEAN_AGE_18_30
-    elif age > 90:
-        row[5] = MEAN_AGE_31_90
+    # if age < 18:
+    #     row[5] = MEAN_AGE_18_30
+    # elif age > 90:
+    #     row[5] = MEAN_AGE_31_90
 
     # Fix problems with 'indrel_1mes' and 'tiprel_1mes':
     fecha_alta_month = fecha_alta[5:7]
@@ -223,23 +223,27 @@ def clean_data_inplace(row):
 
     # Fill `renta` nan -> median per region, employee index, segment, gender, if has no information -> replace by -99
     if renta == "NA":
-        age_group = get_age_group_index(age)
-        key = (pais_residencia, nomprov, ind_empleado, segmento, sexo, age_group)
-        if key in INCOMES_STATS_MAP:
-            row[22] = INCOMES_STATS_MAP[key]
-        else:
-            row[22] = -99.0
-
+        # age_group = get_age_group_index(age)
+        # key = (pais_residencia, nomprov, ind_empleado, segmento, sexo, age_group)
+        # if key in INCOMES_STATS_MAP:
+        #     row[22] = INCOMES_STATS_MAP[key]
+        # else:
+        #     row[22] = -99.0
+        row[22] = -99.0
     return True
 
 
-def to_yearmonth(yearmonth_str):
-    yearmonth = int(yearmonth_str[:7].replace('-', ''))
+def to_yearmonth(yearmonthdate_str):
+    """
+    Convert '2016-01-23' -> 201601
+    """
+    # yearmonth = int(yearmonth_str[:7].replace('-', ''))
+    yearmonth = int(yearmonthdate_str[:4] + yearmonthdate_str[5:7])
     return yearmonth
 
 
 def process_data(input_row):
-    row = copy.deepcopy(input_row)
+    row = list(input_row)
     process_data_inplace(row)
     return row
 
@@ -269,7 +273,7 @@ def process_data_inplace(row):
 
 
 def process_row(input_row):
-    row = copy.deepcopy(input_row)
+    row = list(input_row)
     if clean_data_inplace(row):
         process_data_inplace(row)
         return row

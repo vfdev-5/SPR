@@ -1,6 +1,5 @@
-__author__ = 'ZFTurbo: https://kaggle.com/zfturbo'
-
 """
+__author__ = 'ZFTurbo: https://kaggle.com/zfturbo'
 Fork of ZFTurbo 'Mass hashes' code : https://www.kaggle.com/zfturbo/santander-product-recommendation/mass-hashes/code
 
 Added personal recommendations based on previous user's choices
@@ -9,21 +8,20 @@ Added personal recommendations based on previous user's choices
 
 from datetime import datetime
 import logging
-logging.basicConfig(level=logging.DEBUG)
+import time
 
 from collections import defaultdict
 from copy import deepcopy
 from operator import itemgetter
 import random
 import math
-random.seed(2016)
-
 import numpy as np
-import scipy
 
 # Project
 from common import parse_line, get_target_labels, get_choices, get_user, \
     process_row, to_yearmonth, apk, get_real_values
+
+random.seed(2016)
 
 #####################################################################
 
@@ -175,30 +173,6 @@ def get_profiles(row):
      tipodom, cod_prov, nomprov,  # 18
      ind_actividad_cliente, renta, segmento) = row[:24]
 
-    # if renta == '' or renta == 'NA':
-    #     renta1 = '-1'
-    # elif float(renta) < 45542.97:
-    #     renta1 = '1'
-    # elif float(renta) < 57629.67:
-    #     renta1 = '2'
-    # elif float(renta) < 68211.78:
-    #     renta1 = '3'
-    # elif float(renta) < 78852.39:
-    #     renta1 = '4'
-    # elif float(renta) < 90461.97:
-    #     renta1 = '5'
-    # elif float(renta) < 103855.23:
-    #     renta1 = '6'
-    # elif float(renta) < 120063.00:
-    #     renta1 = '7'
-    # elif float(renta) < 141347.49:
-    #     renta1 = '8'
-    # elif float(renta) < 173418.36:
-    #     renta1 = '9'
-    # elif float(renta) < 234687.12:
-    #     renta1 = '10'
-    # else:
-    #     renta1 = '11'
 
     profiles = [
         ##(0, pais_residencia, nomprov, sexo, age, renta, segmento, ind_empleado),
@@ -320,6 +294,9 @@ def read_data(reader, yearmonth_begin, nb_months,
     # Loop on lines in the file reader:
     removed_rows = 0
     total = 0
+    start = time.time()
+    mean_row_processing = 0.0
+    mean_update = 0.0
     while True:
         line = reader.readline()[:-1]
         total += 1
@@ -345,19 +322,28 @@ def read_data(reader, yearmonth_begin, nb_months,
         if return_raw_data:
             raw_data.append(row)
 
+        start_mrp = time.time()
         processed_row = process_row_func(row)
+        mean_row_processing += time.time() - start_mrp
 
         if processed_row is None or len(processed_row) == 0:
             removed_rows += 1
             continue
 
         last_choice = get_last_choice(get_user(processed_row), personal_recommendations)
+        start_mu = time.time()
         update_common_recommendations(common_recommendations, processed_row, get_profiles_func, last_choice)
         update_product_stats(product_stats, processed_row, last_choice)
         update_personal_recommendations(personal_recommendations, processed_row)
+        mean_update += time.time() - start_mu
 
         if total % 100000 == 0:
-            logging.info('-- Processed {} lines . Current month : {}'.format(total, yearmonth_str))
+            elapsed = time.time() - start
+            start = time.time()
+            mean_row_processing /= float(total)
+            mean_update /= float(total)
+            logging.debug('--- Time analysis : mean row processing : {}, mean update : {}'.format(mean_row_processing, mean_update))
+            logging.info('-- Processed {} lines : Elapsed {} s. Current month : {}'.format(total, elapsed, yearmonth_str))
 
     logging.debug("-- Removed rows : %s" % removed_rows)
 
@@ -479,10 +465,10 @@ def run_solution(train_filename, test_filename):
 
     # Read data and create recommendations structures
 
-    nb_months_validation = 16
+    nb_months_validation = 1
     (personal_recommendations_validation,
      common_recommendations_validation,
-     product_stats_validation) = read_data(reader, 201501, nb_months_validation,
+     product_stats_validation) = read_data(reader, 201601, nb_months_validation,
                                            process_row, get_profiles)
 
     logging.debug("-- common_recommendations_validation : %s " % len(common_recommendations_validation))
@@ -562,11 +548,13 @@ def run_solution(train_filename, test_filename):
 
 if __name__ == "__main__":
 
-    train_filename = "../data/train_ver2.csv"
-    # train_filename = "../data/train_ver2_201601-201605.csv"
+    logging.basicConfig(level=logging.DEBUG)
 
-    test_filename = "../data/test_ver2.csv"
-    # test_filename = None
+    # train_filename = "../data/train_ver2.csv"
+    train_filename = "../data/train_ver2_201601-201605.csv"
+
+    # test_filename = "../data/test_ver2.csv"
+    test_filename = None
 
     if train_filename == "../data/train_ver2.csv" and test_filename is None:
         raise Exception("Is this really what you want ?")

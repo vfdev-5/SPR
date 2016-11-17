@@ -38,8 +38,8 @@ def clean(df):
         df.loc[df[col].isnull(),col] = "UNKNOWN"
 
     # Continue with age -> replace nan with mean , less 18 -> mean between 18, 30 and greater than 90 -> mean between 30, 90
-    df.loc[df.age < 18,"age"]  = df.loc[(df.age >= 18) & (df.age <= 30),"age"].mean(skipna=True)
-    df.loc[df.age > 90,"age"] = df.loc[(df.age >= 30) & (df.age <= 90),"age"].mean(skipna=True)
+    df.loc[df.age < 18, "age"]  = df.loc[(df.age >= 18) & (df.age <= 30),"age"].mean(skipna=True)
+    df.loc[df.age > 90, "age"] = df.loc[(df.age >= 30) & (df.age <= 90),"age"].mean(skipna=True)
     df["age"].fillna(df["age"].mean(),inplace=True)
     df["age"] = df["age"].astype(int)
     
