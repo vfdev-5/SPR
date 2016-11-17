@@ -399,6 +399,7 @@ def write_submission(writer, reader, target_labels,
     total = 0
     writer.write("ncodpers,added_products\n")
 
+    removed_rows = 0
     while True:
         line = reader.readline()[:-1]
         total += 1
@@ -407,12 +408,20 @@ def write_submission(writer, reader, target_labels,
             break
 
         row = parse_line(line)
-        row = process_row_func(row)
 
+        # Write before row processing
         user = get_user(row)
         writer.write(user + ',')
 
-        predicted = compute_predictions(row,
+        prow = process_row_func(row)
+
+        if prow is None or len(prow) == 0:
+            removed_rows += 1
+            logging.debug("--- Removed row : {}".format(row))
+            writer.write("\n")
+            continue
+
+        predicted = compute_predictions(prow,
                                         get_profiles_func,
                                         personal_recommendations,
                                         common_recommendations,
@@ -424,6 +433,8 @@ def write_submission(writer, reader, target_labels,
             logging.info('Read {} lines'.format(total))
 
         writer.write("\n")
+
+    logging.info("-- Removed rows : %s" % removed_rows)
 
 
 def predict_score(validation_data,
@@ -438,6 +449,10 @@ def predict_score(validation_data,
     for row in validation_data:
 
         row = process_row_func(row)
+
+        if row is None or len(row) == 0:
+            continue
+
         predicted = compute_predictions(row, get_profiles_func,
                                         personal_recommendations,
                                         common_recommendations,
@@ -464,7 +479,7 @@ def run_solution(train_filename, test_filename):
 
     # Read data and create recommendations structures
 
-    nb_months_validation = 1
+    nb_months_validation = 16
     (personal_recommendations_validation,
      common_recommendations_validation,
      product_stats_validation) = read_data(reader, 201501, nb_months_validation,
