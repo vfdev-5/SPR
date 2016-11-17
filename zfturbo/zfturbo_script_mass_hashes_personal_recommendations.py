@@ -470,11 +470,6 @@ def run_solution(train_filename, test_filename):
      product_stats_validation) = read_data(reader, 201501, nb_months_validation,
                                            process_row, get_profiles)
 
-    ###
-    reader.close()
-    return
-    ###
-
     logging.debug("-- common_recommendations_validation : %s " % len(common_recommendations_validation))
     logging.debug("-- personal_recommendations_validation : %s " % len(personal_recommendations_validation))
     logging.debug("-- product_stats_validation : %s " % len(product_stats_validation))
