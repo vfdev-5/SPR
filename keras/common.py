@@ -28,15 +28,32 @@ MONTH_START_END_ROW_INDICES = {
     201605: [12715856, 13647308]
 }
 
+TARGET_LABELS = ['ind_ahor_fin_ult1', 'ind_aval_fin_ult1', 'ind_cco_fin_ult1',
+ 'ind_cder_fin_ult1', 'ind_cno_fin_ult1', 'ind_ctju_fin_ult1',
+ 'ind_ctma_fin_ult1', 'ind_ctop_fin_ult1', 'ind_ctpp_fin_ult1',
+ 'ind_deco_fin_ult1', 'ind_deme_fin_ult1', 'ind_dela_fin_ult1',
+ 'ind_ecue_fin_ult1', 'ind_fond_fin_ult1', 'ind_hip_fin_ult1',
+ 'ind_plan_fin_ult1', 'ind_pres_fin_ult1', 'ind_reca_fin_ult1',
+ 'ind_tjcr_fin_ult1', 'ind_valo_fin_ult1', 'ind_viv_fin_ult1',
+ 'ind_nomina_ult1', 'ind_nom_pens_ult1', 'ind_recibo_ult1']
+
 
 def load_data(filename, yearmonth_start, yearmonth_end):
 
     """
     Script to load data as pd.DataFrame
     """
+    load_dtypes = {"sexo": str,
+                   "ind_nuevo": str,
+                   "ult_fec_cli_1t": str,
+                   "indext": str,
+                   "indrel_1mes": str,
+                   "conyuemp": str}
+
     skiprows = MONTH_START_END_ROW_INDICES[yearmonth_start][0]
     nrows = MONTH_START_END_ROW_INDICES[yearmonth_end][1] - skiprows + 1
-    df = pd.read_csv(filename, skiprows=range(1, skiprows + 1), nrows=nrows)
+    df = pd.read_csv(filename, dtype=load_dtypes, skiprows=range(1, skiprows + 1), nrows=nrows)
+    df["age"] = pd.to_numeric(df["age"], errors="coerce")
     return df
 
 
@@ -49,15 +66,44 @@ def to_yearmonth(yearmonthdate_str):
     return yearmonth
 
 
-def get_nb_months(start_date_str, end_date_str):
-    res = to_yearmonth(end_date_str)*0.01 - to_yearmonth(start_date_str)*0.01
-    return int(res) * 12 + int((res - int(res)) * 100 + 0.5)
+def _to_ym_dec(ym):
+    """
+    XXXXYY -> XXXX.ZZ
+    ZZ = (YY - 1) * 100.0 / 12.0
+    """
+    XXXX = int(ym * 0.01)
+    YY = int(100 * (ym * 0.01 - XXXX) + 0.5)
+    ZZ = (YY - 1) * 100.0 / 12.0
+    ym_dec = XXXX + 0.01 * ZZ
+    return ym_dec
+
+
+def _to_ym(ym_dec):
+    """
+    XXXX.ZZ -> XXXXYY
+    """
+    XXXX = int(ym_dec)
+    ZZ = ym_dec - XXXX
+    YY = int(ZZ * 12.0 + 0.5) + 1
+    ym = XXXX * 100 + YY
+    return ym
+
+
+def _to_nb_months(ym_dec):
+    """
+    XXXX.ZZ -> number of months
+    """
+    nb_years = int(ym_dec)
+    zz = ym_dec - nb_years
+    return 12 * nb_years + int(zz * 12.0 + 0.5)
 
 
 def minimal_clean_data_inplace(df):
     """
     Script to clean data in input DataFrame
     """
+
+
     # There are some 'unknown' users in train dataset only
     unknown_users = df['sexo'].isnull() & df['age'].isnull() & df['ind_empleado'].isnull() & \
                     df['fecha_alta'].isnull() & df['pais_residencia'].isnull()
@@ -102,10 +148,12 @@ def minimal_clean_data_inplace(df):
 
     # replace 'antiguedad' with the number of months between 'fecha_alta' and 'fecha_dato'
     def _compute_duration(row):
-        return get_nb_months(row['fecha_alta'], row['fecha_dato'])
-
-    #df['antiguedad'] = df.apply(_compute_duration, axis=1)
-    #df.drop(['antiguedad'], axis=1, inplace=True)
+        ym1 = to_yearmonth(row['fecha_alta'])
+        ym2 = to_yearmonth(row['fecha_dato'])
+        ym_dec1 = _to_ym_dec(ym1)
+        ym_dec2 = _to_ym_dec(ym2)
+        return _to_nb_months(ym_dec2 - ym_dec1)
+    df['antiguedad'] = df.apply(_compute_duration, axis=1)
 
 
 def preprocess_data_inplace(df):
