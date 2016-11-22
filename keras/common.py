@@ -2,11 +2,9 @@
 #
 # Script to load data using Pandas
 #
-from math import floor, ceil
 import logging
-import numpy as np
 import pandas as pd
-
+from sklearn.preprocessing import LabelEncoder
 
 MONTH_START_END_ROW_INDICES = {
     201501: [0, 625456],
@@ -127,11 +125,13 @@ def minimal_clean_data_inplace(df):
                     'nomprov',
                     'segmento',
                     'tiprel_1mes',
-                    'indrel_1mes',
-                    'renta']
+                    'indrel_1mes']
     # Start with cols -> replace nan with UNKNOWN
     for col in unknown_cols:
         df.loc[df[col].isnull(), col] = "UNKNOWN"
+
+    # Set unknown renta to -99
+    df.loc[df['renta'].isnull(), 'renta'] = -99
 
     # Next `fecha_alta` :
     assert df['fecha_alta'].isnull().sum() == 0, \
@@ -160,4 +160,8 @@ def preprocess_data_inplace(df):
     """
     Script to process data in input DataFrame
     """
-    pass
+    string_data = df.drop(['fecha_dato', 'fecha_alta'], axis=1).select_dtypes(include=["object"])
+    for c in string_data.columns:
+        le = LabelEncoder()
+        le.fit(df[c])
+        df[c] = le.transform(df[c])
