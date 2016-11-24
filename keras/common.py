@@ -4,6 +4,7 @@
 #
 import logging
 import pandas as pd
+import numpy as np
 from sklearn.preprocessing import LabelEncoder
 
 MONTH_START_END_ROW_INDICES = {
@@ -36,7 +37,7 @@ TARGET_LABELS = ['ind_ahor_fin_ult1', 'ind_aval_fin_ult1', 'ind_cco_fin_ult1',
  'ind_nomina_ult1', 'ind_nom_pens_ult1', 'ind_recibo_ult1']
 
 
-def load_data(filename, yearmonth_start, yearmonth_end):
+def load_data(filename, yearmonth_start, yearmonth_end, nb_clients=-1):
 
     """
     Script to load data as pd.DataFrame
@@ -52,6 +53,45 @@ def load_data(filename, yearmonth_start, yearmonth_end):
     nrows = MONTH_START_END_ROW_INDICES[yearmonth_end][1] - skiprows + 1
     df = pd.read_csv(filename, dtype=load_dtypes, skiprows=range(1, skiprows + 1), nrows=nrows)
     df["age"] = pd.to_numeric(df["age"], errors="coerce")
+    if nb_clients > 0:
+        nb_months = yearmonth_end - yearmonth_start + 1
+        clients = df['ncodpers'].value_counts()[df['ncodpers'].value_counts() == nb_months].index.values
+        clients = np.random.choice(clients, nb_clients)
+        df = df[df['ncodpers'].isin(clients)]
+    return df
+
+
+def load_data2(filename, yearmonths_list, nb_clients=-1):
+
+    """
+    Script to load data as pd.DataFrame
+    """
+    load_dtypes = {"sexo": str,
+                   "ind_nuevo": str,
+                   "ult_fec_cli_1t": str,
+                   "indext": str,
+                   "indrel_1mes": str,
+                   "conyuemp": str}
+
+    df = pd.DataFrame()
+    if len(yearmonths_list) > 0:
+        for yearmonth in yearmonths_list:
+            skiprows = MONTH_START_END_ROW_INDICES[yearmonth][0]
+            nrows = MONTH_START_END_ROW_INDICES[yearmonth][1] - skiprows + 1
+            _df = pd.read_csv(filename, dtype=load_dtypes, skiprows=range(1, skiprows + 1), nrows=nrows)
+            df = pd.concat([df, _df], axis=0, ignore_index=True)
+    else:
+        logging.info("-- Read all data from the file : %s" % filename)
+        df = pd.read_csv(filename, dtype=load_dtypes)
+
+    df["age"] = pd.to_numeric(df["age"], errors="coerce")
+    if nb_clients > 0:
+        logging.info("-- Select %s clients" % nb_clients)
+        nb_months = len(yearmonths_list)
+        clients = df['ncodpers'].value_counts()[df['ncodpers'].value_counts() == nb_months].index.values
+        np.random.shuffle(clients)
+        clients = clients[:nb_clients]
+        df = df[df['ncodpers'].isin(clients)]
     return df
 
 
@@ -100,16 +140,17 @@ def minimal_clean_data_inplace(df):
     """
     Script to clean data in input DataFrame
     """
-
-
     # There are some 'unknown' users in train dataset only
-    unknown_users = df['sexo'].isnull() & df['age'].isnull() & df['ind_empleado'].isnull() & \
+    unknown_data_lines = df['sexo'].isnull() & df['age'].isnull() & df['ind_empleado'].isnull() & \
                     df['fecha_alta'].isnull() & df['pais_residencia'].isnull()
 
-    logging.info("- Number of unknown clients : %s" % unknown_users.sum())
+    logging.info("- Number of lines with unknown data : %s" % unknown_data_lines.sum())
 
-    # **Remove these users** !
-    df.drop(df[unknown_users].index, inplace=True)
+    # Remove these users as clients
+    _clients = df[unknown_data_lines]['ncodpers'].unique()
+    bad_lines = df['ncodpers'].isin(_clients)
+    df.drop(df[bad_lines].index, inplace=True)
+    # df.drop(df[unknown_users].index, inplace=True)
 
     logging.info("- Number of columns with nan : %s" % df.isnull().any().sum())
 
