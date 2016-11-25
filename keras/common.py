@@ -85,6 +85,7 @@ def load_data2(filename, yearmonths_list, nb_clients=-1):
         df = pd.read_csv(filename, dtype=load_dtypes)
 
     df["age"] = pd.to_numeric(df["age"], errors="coerce")
+    df["renta"] = pd.to_numeric(df["renta"], errors="coerce")
     if nb_clients > 0:
         logging.info("-- Select %s clients" % nb_clients)
         nb_months = len(yearmonths_list)
@@ -150,7 +151,6 @@ def minimal_clean_data_inplace(df):
     _clients = df[unknown_data_lines]['ncodpers'].unique()
     bad_lines = df['ncodpers'].isin(_clients)
     df.drop(df[bad_lines].index, inplace=True)
-    # df.drop(df[unknown_users].index, inplace=True)
 
     logging.info("- Number of columns with nan : %s" % df.isnull().any().sum())
 
@@ -181,11 +181,12 @@ def minimal_clean_data_inplace(df):
     # **Remove 'tipodom' and 'cod_prov' columns**
     df.drop(["tipodom", "cod_prov"], axis=1, inplace=True)
 
-    # Target labels : `ind_nomina_ult1`, `ind_nom_pens_ult1` : nan -> 0
-    # I could try to fill in missing values for products by looking at previous months,
-    # but since it's such a small number of values for now I'll take the cheap way out.
-    df.loc[df.ind_nomina_ult1.isnull(), "ind_nomina_ult1"] = 0
-    df.loc[df.ind_nom_pens_ult1.isnull(), "ind_nom_pens_ult1"] = 0
+    if "ind_nomina_ult1" in df.columns and "ind_nom_pens_ult1" in df.columns:
+        # Target labels : `ind_nomina_ult1`, `ind_nom_pens_ult1` : nan -> 0
+        # I could try to fill in missing values for products by looking at previous months,
+        # but since it's such a small number of values for now I'll take the cheap way out.
+        df.loc[df.ind_nomina_ult1.isnull(), "ind_nomina_ult1"] = 0
+        df.loc[df.ind_nom_pens_ult1.isnull(), "ind_nom_pens_ult1"] = 0
 
     # replace 'antiguedad' with the number of months between 'fecha_alta' and 'fecha_dato'
     def _compute_duration(row):
@@ -206,3 +207,7 @@ def preprocess_data_inplace(df):
         le = LabelEncoder()
         le.fit(df[c])
         df[c] = le.transform(df[c])
+
+
+
+
