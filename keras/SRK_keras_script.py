@@ -52,116 +52,116 @@ print(target_cols)
 ohes = []
 feat_count = 0
 for col in cols_to_use:
-	ohe = preprocessing.OneHotEncoder()
-	ohe.fit(np.array(list(mapping_dict[col].values())).reshape(-1,1))
-	feat_count += ohe.n_values_[0]
-	print(col, feat_count)
-	ohes.append(ohe)
+    ohe = preprocessing.OneHotEncoder()
+    ohe.fit(np.array(list(mapping_dict[col].values())).reshape(-1,1))
+    feat_count += ohe.n_values_[0]
+    print(col, feat_count)
+    ohes.append(ohe)
 feat_count += len(numerical_cols)
 
 def batch_generator(file_name, batch_size, shuffle, train_input=True):
-	while (True):
-		if train_input:
-			chunked_df = pd.read_csv(file_name, usecols=['ncodpers']+cols_to_use+numerical_cols+target_cols, chunksize=batch_size)
-		else:
-			chunked_df = pd.read_csv(file_name, usecols=['ncodpers']+cols_to_use+numerical_cols, chunksize=batch_size)
+    while (True):
+        if train_input:
+            chunked_df = pd.read_csv(file_name, usecols=['ncodpers']+cols_to_use+numerical_cols+target_cols, chunksize=batch_size)
+        else:
+            chunked_df = pd.read_csv(file_name, usecols=['ncodpers']+cols_to_use+numerical_cols, chunksize=batch_size)
 
-		nrows = 0
-		for chunk_df in chunked_df:
-			chunk_X = chunk_df[cols_to_use]
-			chunk_X = chunk_X.fillna(-99)
-			for col_ind, col in enumerate(cols_to_use):
-				chunk_X[col] = chunk_X[col].apply(lambda x: mapping_dict[col][x])
-				ohe = ohes[col_ind]
-				temp_X = ohe.transform( np.array(chunk_X[col]).reshape(-1,1) )
-				if col_ind == 0:
-					X = temp_X.todense().copy()
-				else:
-					X = np.hstack((X, temp_X.todense()))
-					
-			chunk_X = chunk_df[numerical_cols]
-			for ind, col in enumerate(numerical_cols):
-				if chunk_X[col].dtype == 'object':
-					chunk_X[col] = chunk_X[col].map(str.strip).replace(['NA'], value=-1).fillna(-1).astype('float64')
-				else:
-					chunk_X[col] = chunk_X[col].fillna(-1).astype('float64')
-				chunk_X[col] = (chunk_X[col] - num_min_values[ind]) / num_range_values[ind]
-			chunk_X = np.array(chunk_X).astype('float64')
-			X = np.hstack((X, chunk_X))
+        nrows = 0
+        for chunk_df in chunked_df:
+            chunk_X = chunk_df[cols_to_use]
+            chunk_X = chunk_X.fillna(-99)
+            for col_ind, col in enumerate(cols_to_use):
+                chunk_X[col] = chunk_X[col].apply(lambda x: mapping_dict[col][x])
+                ohe = ohes[col_ind]
+                temp_X = ohe.transform( np.array(chunk_X[col]).reshape(-1,1) )
+                if col_ind == 0:
+                    X = temp_X.todense().copy()
+                else:
+                    X = np.hstack((X, temp_X.todense()))
 
-			if train_input:
-				y = np.array(chunk_df[target_cols].fillna(0))
+            chunk_X = chunk_df[numerical_cols]
+            for ind, col in enumerate(numerical_cols):
+                if chunk_X[col].dtype == 'object':
+                    chunk_X[col] = chunk_X[col].map(str.strip).replace(['NA'], value=-1).fillna(-1).astype('float64')
+                else:
+                    chunk_X[col] = chunk_X[col].fillna(-1).astype('float64')
+                chunk_X[col] = (chunk_X[col] - num_min_values[ind]) / num_range_values[ind]
+            chunk_X = np.array(chunk_X).astype('float64')
+            X = np.hstack((X, chunk_X))
 
-			if shuffle:
-				shuffle_index = np.random.shuffle(np.arange(X.shape[0]))
-				X = X[shuffle_index,:]
-				if train_input:
-					y = y[shuffle_index,:]
+            if train_input:
+                y = np.array(chunk_df[target_cols].fillna(0))
 
-			if train_input:
-				yield X, y
-			else:
-				yield X
+            if shuffle:
+                shuffle_index = np.random.shuffle(np.arange(X.shape[0]))
+                X = X[shuffle_index,:]
+                if train_input:
+                    y = y[shuffle_index,:]
 
-			nrows += batch_size
-			if train_input and nrows >= train_size:
-				break
+            if train_input:
+                yield X, y
+            else:
+                yield X
+
+            nrows += batch_size
+            if train_input and nrows >= train_size:
+                break
 
 
 def keras_model():
-	# keras model architecture #
-	final_model = Sequential()
-	final_model.add(Dense(50, input_dim=feat_count, init='he_uniform'))
-	final_model.add(Activation('relu'))
-	final_model.add(Dense(len(target_cols), init='zero'))
-	final_model.add(Activation('sigmoid'))
-	final_model.compile(loss='binary_crossentropy', optimizer='adam')
-	return final_model
+    # keras model architecture #
+    final_model = Sequential()
+    final_model.add(Dense(50, input_dim=feat_count, init='he_uniform'))
+    final_model.add(Activation('relu'))
+    final_model.add(Dense(len(target_cols), init='zero'))
+    final_model.add(Activation('sigmoid'))
+    final_model.compile(loss='binary_crossentropy', optimizer='adam')
+    return final_model
 
 if __name__ == "__main__":
-	train = "../input/train_ver2.csv"
-	test = "../input/test_ver2.csv"
-	#train_size = 13647309
-	train_size = 500000
-	test_size = 929615
-	print("Initialize the model..")
-	model = keras_model()
-	print("Model fit..")
-	fit= model.fit_generator(
-			generator = batch_generator(train, 500, False), 
-			nb_epoch = 1,
-			samples_per_epoch = train_size
-		)
-	preds = model.predict_generator(generator=batch_generator(test, 10000, False, False), val_samples=test_size)
-	print("Predictions : ", preds.shape)
-	
-	last_instance_df = pd.read_csv(train, usecols=['ncodpers']+target_cols, dtype=dtype_list)
-	last_instance_df = last_instance_df.drop_duplicates('ncodpers', keep='last')
-	last_instance_df = last_instance_df.fillna(0).astype('int')
-	cust_dict = {}
-	target_cols = np.array(target_cols)
-	for ind, row in last_instance_df.iterrows():
-		cust = row['ncodpers']
-		used_products = set(target_cols[np.array(row[1:])==1])
-		cust_dict[cust] = used_products
-	del last_instance_df
-	
-	target_cols = np.array(target_cols)
-	preds = np.argsort(preds, axis=1)
-	preds = np.fliplr(preds)
-	test_id = np.array(pd.read_csv(test, usecols=['ncodpers'])['ncodpers'])
-	final_preds = []
-	for ind, pred in enumerate(preds):
-		cust = test_id[ind]
-		top_products = target_cols[pred]
-		used_products = cust_dict.get(cust,[])
-		new_top_products = []
-		for product in top_products:
-			if product not in used_products:
-				new_top_products.append(product)
-			if len(new_top_products) == 7:
-				break
-		final_preds.append(" ".join(new_top_products))
-	out_df = pd.DataFrame({'ncodpers':test_id, 'added_products':final_preds})
-	out_df.to_csv('sub_keras_v2.csv', index=False)
+    train = "../input/train_ver2.csv"
+    test = "../input/test_ver2.csv"
+    #train_size = 13647309
+    train_size = 500000
+    test_size = 929615
+    print("Initialize the model..")
+    model = keras_model()
+    print("Model fit..")
+    fit= model.fit_generator(
+            generator = batch_generator(train, 500, False),
+            nb_epoch = 1,
+            samples_per_epoch = train_size
+        )
+    preds = model.predict_generator(generator=batch_generator(test, 10000, False, False), val_samples=test_size)
+    print("Predictions : ", preds.shape)
+
+    last_instance_df = pd.read_csv(train, usecols=['ncodpers']+target_cols, dtype=dtype_list)
+    last_instance_df = last_instance_df.drop_duplicates('ncodpers', keep='last')
+    last_instance_df = last_instance_df.fillna(0).astype('int')
+    cust_dict = {}
+    target_cols = np.array(target_cols)
+    for ind, row in last_instance_df.iterrows():
+        cust = row['ncodpers']
+        used_products = set(target_cols[np.array(row[1:])==1])
+        cust_dict[cust] = used_products
+    del last_instance_df
+
+    target_cols = np.array(target_cols)
+    preds = np.argsort(preds, axis=1)
+    preds = np.fliplr(preds)
+    test_id = np.array(pd.read_csv(test, usecols=['ncodpers'])['ncodpers'])
+    final_preds = []
+    for ind, pred in enumerate(preds):
+        cust = test_id[ind]
+        top_products = target_cols[pred]
+        used_products = cust_dict.get(cust,[])
+        new_top_products = []
+        for product in top_products:
+            if product not in used_products:
+                new_top_products.append(product)
+            if len(new_top_products) == 7:
+                break
+        final_preds.append(" ".join(new_top_products))
+    out_df = pd.DataFrame({'ncodpers':test_id, 'added_products':final_preds})
+    out_df.to_csv('sub_keras_v2.csv', index=False)
 

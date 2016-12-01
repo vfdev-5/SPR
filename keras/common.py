@@ -86,7 +86,6 @@ def load_data2(filename, yearmonths_list, nb_clients=-1):
 
     df["age"] = pd.to_numeric(df["age"], errors="coerce")
     df["renta"] = pd.to_numeric(df["renta"], errors="coerce")
-
     if nb_clients > 0:
         logging.info("-- Select %s clients" % nb_clients)
         nb_months = len(yearmonths_list)
@@ -214,3 +213,7 @@ def preprocess_data_inplace(df):
         le = LabelEncoder()
         le.fit(df[c])
         df[c] = le.transform(df[c])
+
+
+
+
