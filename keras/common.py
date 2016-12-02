@@ -215,5 +215,45 @@ def preprocess_data_inplace(df):
         df[c] = le.transform(df[c])
 
 
+def get_added_products(current_choice, last_choice):
+    """
+    current_choice is e.g. [0, 0, 1, 0, ..., 1], of length 24
+    last_choice is e.g. [0, 0, 1, 0, ..., 1], of length 24
+    """
+    real = []
+    for i, c in enumerate(current_choice):
+        if c == 1:
+            if last_choice[i] == 0:
+                real.append(i)
+    return real
+
+def remove_last_choice(predictions, last_choice):
+    """
+    predictions is a list of product indices
+    last_choice is e.g. [0, 0, 1, 0, ..., 1], of length 24
+    """
+    out = list(predictions)
+    for i, c in enumerate(last_choice):
+        if c == 1 and i in out:
+            out.remove(i)
+    return out
+    
+
+def apk(actual, predicted, k=7):
+    if len(predicted) > k:
+        predicted = predicted[:k]
+
+    score = 0.0
+    num_hits = 0.0
+
+    for i, p in enumerate(predicted):
+        if p in actual and p not in predicted[:i]:
+            num_hits += 1.0
+            score += num_hits / (i+1.0)
+
+    if not actual:
+        return 0.0
+    
+    return score / min(len(actual), k)
 
 
