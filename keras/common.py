@@ -36,14 +36,13 @@ TARGET_LABELS = ['ind_ahor_fin_ult1', 'ind_aval_fin_ult1', 'ind_cco_fin_ult1',
  'ind_tjcr_fin_ult1', 'ind_valo_fin_ult1', 'ind_viv_fin_ult1',
  'ind_nomina_ult1', 'ind_nom_pens_ult1', 'ind_recibo_ult1']
 
-
 def load_data(filename, yearmonth_start, yearmonth_end, nb_clients=-1):
 
     """
     Script to load data as pd.DataFrame
     """
     load_dtypes = {"sexo": str,
-                   "ind_nuevo": str,
+                   "ind_nuevo": int,
                    "ult_fec_cli_1t": str,
                    "indext": str,
                    "indrel_1mes": str,
@@ -67,7 +66,7 @@ def load_data2(filename, yearmonths_list, nb_clients=-1):
     Script to load data as pd.DataFrame
     """
     load_dtypes = {"sexo": str,
-                   "ind_nuevo": str,
+                   "ind_nuevo": int,
                    "ult_fec_cli_1t": str,
                    "indext": str,
                    "indrel_1mes": str,
@@ -86,12 +85,13 @@ def load_data2(filename, yearmonths_list, nb_clients=-1):
 
     df["age"] = pd.to_numeric(df["age"], errors="coerce")
     df["renta"] = pd.to_numeric(df["renta"], errors="coerce")
-    if nb_clients > 0:
+    if nb_clients > 0 or nb_clients == 'max':
         logging.info("-- Select %s clients" % nb_clients)
         nb_months = len(yearmonths_list)
         clients = df['ncodpers'].value_counts()[df['ncodpers'].value_counts() == nb_months].index.values
         np.random.shuffle(clients)
-        clients = clients[:nb_clients]
+        if isinstance(nb_clients, int) and nb_clients < len(clients):
+            clients = clients[:nb_clients]
         df = df[df['ncodpers'].isin(clients)]
     return df
 
@@ -180,6 +180,9 @@ def minimal_clean_data_inplace(df):
 
     # **Remove 'tipodom' and 'cod_prov' columns**
     df.drop(["tipodom", "cod_prov"], axis=1, inplace=True)
+    
+    # Remove floating point at string indrel_1mes
+    df['indrel_1mes'] = df['indrel_1mes'].apply(lambda x: str(int(float(x))) if len(x) == 3 else x)
 
     if "ind_nomina_ult1" in df.columns and "ind_nom_pens_ult1" in df.columns:
         # Target labels : `ind_nomina_ult1`, `ind_nom_pens_ult1` : nan -> 0
@@ -204,15 +207,19 @@ def minimal_clean_test_data_inplace(df):
     pass
 
 
+PREPROCESS_LABEL_ENCODERS = {}
+
 def preprocess_data_inplace(df):
     """
     Script to process data in input DataFrame
     """
     string_data = df.drop(['fecha_dato', 'fecha_alta'], axis=1).select_dtypes(include=["object"])
+        
     for c in string_data.columns:
-        le = LabelEncoder()
-        le.fit(df[c])
-        df[c] = le.transform(df[c])
+        if c not in PREPROCESS_LABEL_ENCODERS:
+            PREPROCESS_LABEL_ENCODERS[c] = LabelEncoder()
+            PREPROCESS_LABEL_ENCODERS[c].fit(df[c])        
+        df[c] = PREPROCESS_LABEL_ENCODERS[c].transform(df[c])
 
 
 def get_added_products(current_choice, last_choice):
@@ -255,5 +262,21 @@ def apk(actual, predicted, k=7):
         return 0.0
     
     return score / min(len(actual), k)
+
+
+def map7_score2(y, y_pred, clients_last_choice, n_highest=7):
+    predicted_added_products = np.argsort(y_pred, axis=1)
+    predicted_added_products = predicted_added_products[:,::-1][:,:n_highest]
+    map7 = 0.0
+
+    for last_choice, targets, products in zip(clients_last_choice, y, predicted_added_products):
+        added_products = get_added_products(targets, last_choice)
+        predictions = remove_last_choice(products, last_choice)
+        score = apk(added_products, predictions)    
+        map7 += score            
+
+    map7 /= len(y)
+    logging.info('-- Predicted map7 score: {}'.format(map7))
+    return map7
 
 
