@@ -10,6 +10,9 @@ Kaggle : 0.0115578
 Result with young clients on data trained without young clients
 Kaggle : 0.0200227
 
+Result with merged young and other clients predictions 
+Kaggle : 0.0221373
+
 
 #### Data:
 

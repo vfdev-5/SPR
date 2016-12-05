@@ -6,6 +6,9 @@ import logging
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder
+from collections import defaultdict
+
+PREPROCESS_LABEL_ENCODERS = defaultdict(dict)
 
 MONTH_START_END_ROW_INDICES = {
     201501: [0, 625456],
@@ -42,7 +45,7 @@ def load_data(filename, yearmonth_start, yearmonth_end, nb_clients=-1):
     Script to load data as pd.DataFrame
     """
     load_dtypes = {"sexo": str,
-                   "ind_nuevo": int,
+                   "ind_nuevo": str,
                    "ult_fec_cli_1t": str,
                    "indext": str,
                    "indrel_1mes": str,
@@ -66,7 +69,7 @@ def load_data2(filename, yearmonths_list, nb_clients=-1):
     Script to load data as pd.DataFrame
     """
     load_dtypes = {"sexo": str,
-                   "ind_nuevo": int,
+                   "ind_nuevo": str,
                    "ult_fec_cli_1t": str,
                    "indext": str,
                    "indrel_1mes": str,
@@ -181,6 +184,9 @@ def minimal_clean_data_inplace(df):
     # **Remove 'tipodom' and 'cod_prov' columns**
     df.drop(["tipodom", "cod_prov"], axis=1, inplace=True)
     
+    # Convert 'ind_nuevo' to int
+    df['ind_nuevo'] = df['ind_nuevo'].astype(int)
+       
     # Remove floating point at string indrel_1mes
     df['indrel_1mes'] = df['indrel_1mes'].apply(lambda x: str(int(float(x))) if len(x) == 3 else x)
 
@@ -191,37 +197,75 @@ def minimal_clean_data_inplace(df):
         df.loc[df.ind_nomina_ult1.isnull(), "ind_nomina_ult1"] = 0
         df.loc[df.ind_nom_pens_ult1.isnull(), "ind_nom_pens_ult1"] = 0
 
+    
     # replace 'antiguedad' with the number of months between 'fecha_alta' and 'fecha_dato'
-    def _compute_duration(row):
-        ym1 = to_yearmonth(row['fecha_alta'])
-        ym2 = to_yearmonth(row['fecha_dato'])
-        ym_dec1 = _to_ym_dec(ym1)
-        ym_dec2 = _to_ym_dec(ym2)
-        return _to_nb_months(ym_dec2 - ym_dec1)
-    df['antiguedad'] = df.apply(_compute_duration, axis=1)
+    #def _compute_duration(row):
+    #    ym1 = to_yearmonth(row['fecha_alta'])
+    #    ym2 = to_yearmonth(row['fecha_dato'])
+    #    ym_dec1 = _to_ym_dec(ym1)
+    #    ym_dec2 = _to_ym_dec(ym2)
+    #    return _to_nb_months(ym_dec2 - ym_dec1)
+    #df['antiguedad'] = df.apply(_compute_duration, axis=1)
+    func1 = lambda x: _to_ym_dec(to_yearmonth(x))
+    func2 = lambda x: max(_to_nb_months(x), 0) 
 
+    v1 = df['fecha_dato'].apply(func1)
+    v2 = df['fecha_alta'].apply(func1)
+    v3 = (v1 - v2).apply(func2)
+    df.loc[:, 'antiguedad'] = v3
+    
+    # Replace 'ult_fec_cli_1t' by current nb of months from fecha_dato, if negative, set to zero
+    mask = df['ult_fec_cli_1t'] == 'UNKNOWN'
+    df.loc[mask, 'ult_fec_cli_1t'] = df[mask]['fecha_dato']
+    v1 = df['fecha_dato'].apply(func1)
+    v2 = df['ult_fec_cli_1t'].apply(func1)
+    v3 = (v1 - v2).apply(func2)
+    df.loc[:, 'ult_fec_cli_1t'] = v3
+    
+    
+def encode(encoder, df, drop_cols=[]):
+    logging.debug("-- Call encode --")
+    
+    if len(drop_cols) > 0:
+        string_data = df.drop(drop_cols, axis=1).select_dtypes(include=["object"])
+    else:
+        string_data = df.select_dtypes(include=["object"])
+        
+    for c in string_data.columns:
+        unique_vals = df[c].unique()
+        # initialize :
+        if len(encoder[c]) == 0 :
+            logging.debug("- Initialize : %s" % c)
+            # fit :
+            for i, v in enumerate(unique_vals):
+                logging.debug("-1 Add : {} -> {}".format(v, i))
+                encoder[c][v] = i
+        
+        # check :
+        isin_mask = np.in1d(unique_vals, encoder[c].keys())
+        logging.debug("- Check : %s" % c)
+        logging.debug("-- isin_mask: {}".format(isin_mask.all()))
+        if not isin_mask.all():
+            logging.debug("- Check is failed : need to add more")
+            next_val = np.max(encoder[c].values()) + 1
+            logging.debug("-- next_val: %i" % next_val)
+            # fit :
+            for i, v in enumerate(unique_vals[~isin_mask]):                
+                logging.debug("-2 Add : {} -> {}".format(v, next_val + i))                
+                encoder[c][v] = next_val + i                
+        
+        # transform :
+        logging.debug("- Transform : %s" % c)
+        df.loc[:, c] = df[c].apply(lambda x: encoder[c][x])
 
-def minimal_clean_test_data_inplace(df):
-    """
-    """
-    pass
-
-
-PREPROCESS_LABEL_ENCODERS = {}
-
+                              
 def preprocess_data_inplace(df):
     """
     Script to process data in input DataFrame
     """
-    string_data = df.drop(['fecha_dato', 'fecha_alta'], axis=1).select_dtypes(include=["object"])
+    encode(PREPROCESS_LABEL_ENCODERS, df, ['fecha_dato', 'fecha_alta'])
+                              
         
-    for c in string_data.columns:
-        if c not in PREPROCESS_LABEL_ENCODERS:
-            PREPROCESS_LABEL_ENCODERS[c] = LabelEncoder()
-            PREPROCESS_LABEL_ENCODERS[c].fit(df[c])        
-        df[c] = PREPROCESS_LABEL_ENCODERS[c].transform(df[c])
-
-
 def get_added_products(current_choice, last_choice):
     """
     current_choice is e.g. [0, 0, 1, 0, ..., 1], of length 24
