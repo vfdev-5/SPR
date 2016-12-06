@@ -5,8 +5,8 @@
 import logging
 import pandas as pd
 import numpy as np
-from sklearn.preprocessing import LabelEncoder
 from collections import defaultdict
+from math import log
 
 PREPROCESS_LABEL_ENCODERS = defaultdict(dict)
 
@@ -38,6 +38,14 @@ TARGET_LABELS = ['ind_ahor_fin_ult1', 'ind_aval_fin_ult1', 'ind_cco_fin_ult1',
  'ind_plan_fin_ult1', 'ind_pres_fin_ult1', 'ind_reca_fin_ult1',
  'ind_tjcr_fin_ult1', 'ind_valo_fin_ult1', 'ind_viv_fin_ult1',
  'ind_nomina_ult1', 'ind_nom_pens_ult1', 'ind_recibo_ult1']
+
+
+def dummies_to_decimal(row):
+    output = ''
+    for v in row.values:
+        output += str(int(v))
+    return log(int(output, 2)+1)
+
 
 def load_data(filename, yearmonth_start, yearmonth_end, nb_clients=-1):
 
@@ -197,15 +205,7 @@ def minimal_clean_data_inplace(df):
         df.loc[df.ind_nomina_ult1.isnull(), "ind_nomina_ult1"] = 0
         df.loc[df.ind_nom_pens_ult1.isnull(), "ind_nom_pens_ult1"] = 0
 
-    
     # replace 'antiguedad' with the number of months between 'fecha_alta' and 'fecha_dato'
-    #def _compute_duration(row):
-    #    ym1 = to_yearmonth(row['fecha_alta'])
-    #    ym2 = to_yearmonth(row['fecha_dato'])
-    #    ym_dec1 = _to_ym_dec(ym1)
-    #    ym_dec2 = _to_ym_dec(ym2)
-    #    return _to_nb_months(ym_dec2 - ym_dec1)
-    #df['antiguedad'] = df.apply(_compute_duration, axis=1)
     func1 = lambda x: _to_ym_dec(to_yearmonth(x))
     func2 = lambda x: max(_to_nb_months(x), 0) 
 
@@ -223,7 +223,7 @@ def minimal_clean_data_inplace(df):
     df.loc[:, 'ult_fec_cli_1t'] = v3
     
     
-def encode(encoder, df, drop_cols=[]):
+def encode(encoder, df, drop_cols=()):
     logging.debug("-- Call encode --")
     
     if len(drop_cols) > 0:
@@ -277,6 +277,7 @@ def get_added_products(current_choice, last_choice):
             if last_choice[i] == 0:
                 real.append(i)
     return real
+
 
 def remove_last_choice(predictions, last_choice):
     """
