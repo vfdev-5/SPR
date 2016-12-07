@@ -32,18 +32,23 @@ def decimal_to_dummies(value):
     return '{:024b}'.format(value)
 
 
-def dummy_to_dec(row):
-    s = dummies_to_str(row)
-    v = 0
-    for i, c in enumerate(s):
-        v += np.power(0.5, i) * int(c)
-    return v
+def targets_str_to_indices(targets_str):
+    out = []
+    for s in targets_str:
+        out.append([i for i, c in enumerate(s) if int(c) == 1])
+    return np.array(out)
 
-
-def dec_to_dummy(v):
-    q=0.5
-    output = '{:024b}'.format(int(v/(q**23)))
-    return output
+def targets_dec_to_indices(targets_dec):
+    out = []
+    for v in targets_dec:
+        print v, 
+        s = decimal_to_dummies(v)
+        print s, 
+        ind = [i for i, c in enumerate(s) if int(c) == 1]
+        out.append(ind)
+        print ind 
+    
+    return np.array(out)  
 
 
 def _add_diff_inplace(df, prev_ym_mask, ym_mask):
@@ -51,7 +56,7 @@ def _add_diff_inplace(df, prev_ym_mask, ym_mask):
     df should be imperatively sorted by clients in order to subtract and assign correctly
     """
     tmp_df = df[['fecha_dato', 'ncodpers']]
-    tmp_df.loc[:, 't'] = df[TARGET_LABELS].apply(dummy_to_dec, axis=1)
+    tmp_df.loc[:, 't'] = df[TARGET_LABELS].apply(dummies_to_decimal, axis=1)
     v1 = tmp_df[ym_mask][['ncodpers', 't']]
     v2 = tmp_df[prev_ym_mask][['ncodpers', 't']]
     assert len(v1) == len(v2), "Length of current month and previous month are not equal"
@@ -73,7 +78,8 @@ def _add_clc_inplace(df, prev_ym_mask, ym_mask):
         df.loc[ym_mask, c] = clients_last_choice[c]
 
     df.loc[ym_mask, 'lc_targets_str'] = df[ym_mask][LC_TARGET_LABELS].apply(dummies_to_str, axis=1)
-    df.loc[ym_mask, 'lc_targets_dec'] = df[ym_mask][LC_TARGET_LABELS].apply(dummy_to_dec, axis=1)
+    df.loc[ym_mask, 'lc_targets_dec'] = df[ym_mask][LC_TARGET_LABELS].apply(dummies_to_decimal, axis=1).astype(np.int)
+    
 
 
 def load_trainval(train_yearmonths_list, val_yearmonth, train_nb_clients=-1):
@@ -124,7 +130,7 @@ def load_trainval(train_yearmonths_list, val_yearmonth, train_nb_clients=-1):
     train_df = train_df.sort_values(['ncodpers', 'fecha_dato'])
 
     train_df.loc[:, 'targets_str'] = train_df[TARGET_LABELS].apply(dummies_to_str, axis=1)
-    train_df.loc[:, 'targets_dec'] = train_df[TARGET_LABELS].apply(dummy_to_dec, axis=1)
+    train_df.loc[:, 'targets_dec'] = train_df[TARGET_LABELS].apply(dummies_to_decimal, axis=1)
 
     for ym in train_yearmonths_list:
         logging.info("-- Process date : {}".format(ym))
@@ -163,7 +169,7 @@ def load_trainval(train_yearmonths_list, val_yearmonth, train_nb_clients=-1):
     # Imperatively sort by clients in order to subtract and assign correctly
     val_df = val_df.sort_values(['ncodpers', 'fecha_dato'])
     val_df.loc[:, 'targets_str'] = val_df[TARGET_LABELS].apply(dummies_to_str, axis=1)
-    val_df.loc[:, 'targets_dec'] = val_df[TARGET_LABELS].apply(dummy_to_dec, axis=1)
+    val_df.loc[:, 'targets_dec'] = val_df[TARGET_LABELS].apply(dummies_to_decimal, axis=1)
 
     for ym in val_yearmonth:
         logging.info("-- Process date : {}".format(ym))

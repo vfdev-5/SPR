@@ -309,12 +309,9 @@ def apk(actual, predicted, k=7):
     return score / min(len(actual), k)
 
 
-def map7_score2(y, y_pred, clients_last_choice, n_highest=7):
-    predicted_added_products = np.argsort(y_pred, axis=1)
-    predicted_added_products = predicted_added_products[:,::-1][:,:n_highest]
+def map7_score2(y, y_pred, clients_last_choice):
     map7 = 0.0
-
-    for last_choice, targets, products in zip(clients_last_choice, y, predicted_added_products):
+    for last_choice, targets, products in zip(clients_last_choice, y, y_pred):
         added_products = get_added_products(targets, last_choice)
         predictions = remove_last_choice(products, last_choice)
         score = apk(added_products, predictions)    
