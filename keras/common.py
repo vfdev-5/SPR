@@ -66,11 +66,23 @@ def targets_dec_to_indices(targets_dec):
     return np.array(out) 
 
 
+def targets_to_labels(targets, tl):
+    out = []
+    tl = np.array(TARGET_LABELS2)
+    for t in targets:
+        out.append(tl[np.where(t > 0)])
+    return out
+
+
 def target_str_to_labels(targets_str, tl):
     indices = targets_str_to_indices(targets_str)
+    return targets_indices_to_labels(indices)
+
+
+def targets_indices_to_labels(targets_indices, tl):
     out = []
     tl = np.array(tl)
-    for i in indices:
+    for i in targets_indices:
         out.append(tl[i])
     return out
 
@@ -344,10 +356,15 @@ def apk(actual, predicted, k=7):
     return score / min(len(actual), k)
 
 
-def map7_score2(y, y_pred, clients_last_choice):
+def map7_score(y, y_pred, clients_last_choice):
+    """
+    y is an ndarray of indicies: e.g. [[2, 13], [2], [24, 14, 5], ...]
+    y_pred is an ndarray of indicies: e.g. [[2, 13], [2], [24, 14, 5], ...]
+    clients_last_choice is an ndarray: e.g. [0, 0, 1, 0, ..., 1], of length 24
+    """
     map7 = 0.0
     for last_choice, targets, products in zip(clients_last_choice, y, y_pred):
-        added_products = get_added_products(targets, last_choice)
+        added_products = remove_last_choice(targets, last_choice)
         predictions = remove_last_choice(products, last_choice)
         score = apk(added_products, predictions)    
         map7 += score            
