@@ -39,6 +39,41 @@ TARGET_LABELS = ['ind_ahor_fin_ult1', 'ind_aval_fin_ult1', 'ind_cco_fin_ult1',
  'ind_tjcr_fin_ult1', 'ind_valo_fin_ult1', 'ind_viv_fin_ult1',
  'ind_nomina_ult1', 'ind_nom_pens_ult1', 'ind_recibo_ult1']
 
+TARGET_LABELS2 = [
+    "Saving Account", "Guarantees", "Current Accounts", "Derivada Account", "Payroll Account", "Junior Account",
+    "Mas particular Account", "particular Account", "particular Plus Account", "Short-term deposits",
+    "Medium-term deposits", "Long-term deposits", "e-account", "Funds", "Mortgage", "Pensions (plan fin)",
+    "Loans", "Taxes", "Credit Card", "Securities", "Home Account", "Payroll", "Pensions", "Direct Debit" ]
+
+
+def targets_str_to_indices(targets_str):
+    out = []
+    for s in targets_str:
+        out.append([i for i, c in enumerate(s) if int(c) == 1])
+    return np.array(out)
+
+
+def targets_dec_to_indices(targets_dec):
+    out = []
+    for v in targets_dec:
+        print v, 
+        s = decimal_to_dummies(v)
+        print s, 
+        ind = [i for i, c in enumerate(s) if int(c) == 1]
+        out.append(ind)
+        print ind 
+    
+    return np.array(out) 
+
+
+def target_str_to_labels(targets_str, tl):
+    indices = targets_str_to_indices(targets_str)
+    out = []
+    tl = np.array(tl)
+    for i in indices:
+        out.append(tl[i])
+    return out
+
 
 def dummies_to_decimal(row):
     output = ''

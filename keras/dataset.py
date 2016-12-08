@@ -1,14 +1,16 @@
 
 import os
 import numpy as np
+import pandas as pd
 
 import logging
 
 from common import _to_ym_dec, _to_ym, to_yearmonth
 from common import load_data2, minimal_clean_data_inplace, preprocess_data_inplace
-from common import TARGET_LABELS
+from common import TARGET_LABELS, targets_str_to_indices, targets_dec_to_indices
 
 TRAIN_FILE_PATH = os.path.join("..", "data", "train_ver2.csv")
+TEST_FILE_PATH = os.path.join("..", "data", "test_ver2.csv")
 LC_TARGET_LABELS = ['lc_' + t for t in TARGET_LABELS]
 
 
@@ -30,25 +32,6 @@ def dummies_to_decimal(row):
 
 def decimal_to_dummies(value):
     return '{:024b}'.format(value)
-
-
-def targets_str_to_indices(targets_str):
-    out = []
-    for s in targets_str:
-        out.append([i for i, c in enumerate(s) if int(c) == 1])
-    return np.array(out)
-
-def targets_dec_to_indices(targets_dec):
-    out = []
-    for v in targets_dec:
-        print v, 
-        s = decimal_to_dummies(v)
-        print s, 
-        ind = [i for i, c in enumerate(s) if int(c) == 1]
-        out.append(ind)
-        print ind 
-    
-    return np.array(out)  
 
 
 def _add_diff_inplace(df, prev_ym_mask, ym_mask):
@@ -78,8 +61,6 @@ def _add_clc_inplace(df, prev_ym_mask, ym_mask):
         df.loc[ym_mask, c] = clients_last_choice[c]
 
     df.loc[ym_mask, 'lc_targets_str'] = df[ym_mask][LC_TARGET_LABELS].apply(dummies_to_str, axis=1)
-    df.loc[ym_mask, 'lc_targets_dec'] = df[ym_mask][LC_TARGET_LABELS].apply(dummies_to_decimal, axis=1).astype(np.int)
-    
 
 
 def load_trainval(train_yearmonths_list, val_yearmonth, train_nb_clients=-1):
@@ -107,86 +88,221 @@ def load_trainval(train_yearmonths_list, val_yearmonth, train_nb_clients=-1):
                 out += [prev_ym, ym]
         return out
 
+    def _load(_yearmonths_list, nb_clients):
+        yearmonth_list = _ym_list_to_load(_yearmonths_list)
+        logging.info("- Load data : {}".format(yearmonth_list))
+        df = load_data2(TRAIN_FILE_PATH, yearmonth_list, nb_clients)
+        minimal_clean_data_inplace(df)
+        preprocess_data_inplace(df)
+        return yearmonth_list, df
+
+    def _check(df, yearmonth_list):
+        months = df['fecha_dato'].unique()
+        clients = df['ncodpers'].unique()
+        assert len(clients) == (df['ncodpers'].value_counts() == len(yearmonth_list)).sum()
+        ll = len(clients)
+        months_ym_map = {}
+        for m in months:
+            l = len(df[df['fecha_dato'] == m]['ncodpers'].unique())
+            assert l == ll, "Number of clients should be identical for all monthes. (%s, %s, %s)" % (m, l, ll)
+            months_ym_map[to_yearmonth(m)] = m
+        return months_ym_map
+
+    def _process1(df, _yearmonths_list):
+        # Imperatively sort by clients in order to subtract and assign correctly
+        df.sort_values(['ncodpers', 'fecha_dato'], inplace=True)
+        df.loc[:, 'targets_str'] = df[TARGET_LABELS].apply(dummies_to_str, axis=1)
+        for ym in _yearmonths_list:
+            logging.info("-- Process date : {}".format(ym))
+            prev_ym = _get_prev_ym(ym)
+            prev_ym_mask = df['fecha_dato'] == months_ym_map[prev_ym]
+            ym_mask = df['fecha_dato'] == months_ym_map[ym]
+            _add_clc_inplace(df, prev_ym_mask, ym_mask)
+
+    def _compute_logcount_dict(_train_df, _val_df):
+        logging.info("-- Compute logCount dictionary")
+        train_targets_str = _train_df['targets_str'].unique()
+        val_targets_str = _val_df['targets_str'].unique()
+
+        train_logcount_dict = _train_df['targets_str'].value_counts().apply(lambda x: np.log(x + 1))
+        train_logcount_dict /= train_logcount_dict.sum()
+        val_logcount_dict = _val_df['targets_str'].value_counts().apply(lambda x: np.log(x + 1))
+        val_logcount_dict /= val_logcount_dict.sum()
+
+        targets_str_to_val = list(set(train_targets_str) - set(val_targets_str))
+        targets_str_to_train = list(set(val_targets_str) - set(train_targets_str))
+
+        train_logcount_dict = pd.concat(
+            [train_logcount_dict, pd.Series(np.zeros((len(targets_str_to_train))), index=targets_str_to_train)])
+        val_logcount_dict = pd.concat(
+            [val_logcount_dict, pd.Series(np.zeros((len(targets_str_to_val))), index=targets_str_to_val)])
+
+        logcount_dict = (train_logcount_dict + val_logcount_dict).sort_values(ascending=False)
+        logcount_dict /= logcount_dict.sum()
+        return logcount_dict
+
+    def _add_logcount(df, months, logcount_dict):
+        for m in months:
+            logging.info("-- Process month : %s" % m)
+            tmask = df['fecha_dato'] == m
+            current_logcount_dict = df[tmask]['targets_str'].value_counts().apply(lambda x: np.log(x + 1))
+            current_logcount_dict /= current_logcount_dict.sum()
+
+            df.loc[tmask, 'targets_logcount1'] = df[tmask]['targets_str'].apply(lambda x: current_logcount_dict[x])
+            df.loc[tmask, 'targets_logcount2'] = df[tmask]['targets_str'].apply(lambda x: logcount_dict[x])
+
+            if df[tmask]['lc_targets_str'].isnull().sum() == 0:
+                df.loc[tmask, 'lc_targets_logcount2'] = df[tmask]['lc_targets_str'].apply(lambda x: logcount_dict[x])
+                df.loc[tmask, 'targets_logcount2_diff'] = df.loc[tmask, 'targets_logcount2'] - df.loc[
+                    tmask, 'lc_targets_logcount2']
+
+        df.loc[df['targets_logcount2_diff'].isnull(), 'targets_logcount2_diff'] = -99999
+        df.loc[df['lc_targets_logcount2'].isnull(), 'lc_targets_logcount2'] = -99999
+
+    def _add_logdecimal(df):
+        df.loc[:, 'targets_logDec'] = df[TARGET_LABELS].apply(dummies_to_decimal, axis=1)
+        mask = ~df['lc_targets_str'].isnull()
+        df.loc[mask, 'lc_targets_logDec'] = df[mask][LC_TARGET_LABELS].apply(dummies_to_decimal, axis=1)
+        df.loc[mask, 'targets_diff'] = df.loc[mask, 'targets_logDec'] - df.loc[mask, 'lc_targets_logDec']
+        df.loc[:, 'targets_logDec'] = df.loc[:, 'targets_logDec'].apply(lambda x: np.log(x + 1))
+        df.loc[mask, 'lc_targets_logDec'] = df.loc[:, 'targets_logDec'].apply(lambda x: np.log(x + 1))
+        mask = df['lc_targets_str'].isnull()
+        df.loc[mask, 'targets_diff'] = -99999
+        df.loc[mask, 'lc_targets_logDec'] = -99999
+
+    def _process2(df):
+        mask = ~df['targets_diff'].isin([-99999])
+        df.loc[:, 'age'] = df['age'].apply(get_age_group_index)
+        df.loc[:, 'renta'] = train_df['renta'].apply(get_income_group_index)
+        df.loc[mask, 'targets_logdiff'] = df[mask]['targets_diff']\
+            .apply(lambda x: np.sign(x) * np.log(np.abs(x) + 1))
+        df.loc[~mask, 'targets_logdiff'] = -99999
+
     # ###################
     # Load training data
     # ###################
-    yearmonth_list = _ym_list_to_load(train_yearmonths_list)
-    logging.info("- Load training data : {}".format(yearmonth_list))
-    train_df = load_data2(TRAIN_FILE_PATH, yearmonth_list, train_nb_clients)
-    minimal_clean_data_inplace(train_df)
-    preprocess_data_inplace(train_df)
+    logging.info("- Load training data")
+    yearmonth_list, train_df = _load(train_yearmonths_list, train_nb_clients)
 
-    months = train_df['fecha_dato'].unique()
-    clients = train_df['ncodpers'].unique()
-    assert len(clients) == (train_df['ncodpers'].value_counts() == len(yearmonth_list)).sum()
-    ll = len(clients)
-    months_ym_map = {}
-    for m in months:
-        l = len(train_df[train_df['fecha_dato'] == m]['ncodpers'].unique())
-        assert l == ll, "Number of clients should be identical for all monthes. (%s, %s, %s)" % (m, l, ll)
-        months_ym_map[to_yearmonth(m)] = m
-
-    # Imperatively sort by clients in order to subtract and assign correctly
-    train_df = train_df.sort_values(['ncodpers', 'fecha_dato'])
-
-    train_df.loc[:, 'targets_str'] = train_df[TARGET_LABELS].apply(dummies_to_str, axis=1)
-    train_df.loc[:, 'targets_dec'] = train_df[TARGET_LABELS].apply(dummies_to_decimal, axis=1)
-
-    for ym in train_yearmonths_list:
-        logging.info("-- Process date : {}".format(ym))
-        prev_ym = _get_prev_ym(ym)
-        prev_ym_mask = train_df['fecha_dato'] == months_ym_map[prev_ym]
-        ym_mask = train_df['fecha_dato'] == months_ym_map[ym]
-
-        _add_diff_inplace(train_df, prev_ym_mask, ym_mask)
-        _add_clc_inplace(train_df, prev_ym_mask, ym_mask)
-
-    mask = (~train_df['diff'].isnull())
-    assert (train_df[mask]['diff'] == train_df[mask]['targets_dec'] - train_df[mask]['lc_targets_dec']).all(), "Something is wrong"
-                
-    train_df.loc[train_df['diff'].isnull(), 'diff'] = -int(2**len(TARGET_LABELS))
-    train_df['diff'] = train_df['diff'].astype(np.int) 
+    months_ym_map = _check(train_df, yearmonth_list)
+    _process1(train_df, train_yearmonths_list)
 
     # ###################
     # Load validation data
     # ###################
-    yearmonth_list = _ym_list_to_load(val_yearmonth)
-    logging.info("- Load validation : {}".format(yearmonth_list))
-    val_df = load_data2(TRAIN_FILE_PATH, yearmonth_list, 'max')
-    minimal_clean_data_inplace(val_df)
-    preprocess_data_inplace(val_df)
+    logging.info("- Load validation data")
+    yearmonth_list, val_df = _load(val_yearmonth, 'max')
 
-    months = val_df['fecha_dato'].unique()
-    clients = val_df['ncodpers'].unique()
-    assert len(clients) == (val_df['ncodpers'].value_counts() == len(yearmonth_list)).sum()
-    ll = len(clients)
+    months_ym_map = _check(val_df, yearmonth_list)
+    _process1(val_df, val_yearmonth)
+
+    # ###################
+    # Insert logCount :
+    # ###################
     months_ym_map = {}
+    months = list(set(train_df['fecha_dato'].unique()) | set(val_df['fecha_dato'].unique()))
     for m in months:
-        l = len(val_df[val_df['fecha_dato'] == m]['ncodpers'].unique())
-        assert l == ll, "Number of clients should be identical for all monthes. (%s, %s, %s)" % (m, l, ll)
         months_ym_map[to_yearmonth(m)] = m
+    train_months = train_df['fecha_dato'].unique()
+    val_months = val_df['fecha_dato'].unique()
 
-    # Imperatively sort by clients in order to subtract and assign correctly
-    val_df = val_df.sort_values(['ncodpers', 'fecha_dato'])
-    val_df.loc[:, 'targets_str'] = val_df[TARGET_LABELS].apply(dummies_to_str, axis=1)
-    val_df.loc[:, 'targets_dec'] = val_df[TARGET_LABELS].apply(dummies_to_decimal, axis=1)
+    logcount_dict = _compute_logcount_dict(train_df, val_df)
 
-    for ym in val_yearmonth:
-        logging.info("-- Process date : {}".format(ym))
-        prev_ym = _get_prev_ym(ym)
-        prev_ym_mask = val_df['fecha_dato'] == months_ym_map[prev_ym]
-        ym_mask = val_df['fecha_dato'] == months_ym_map[ym]
+    logging.info("-- Add logCount columns")
+    _add_logcount(train_df, train_months, logcount_dict)
+    _add_logcount(val_df, val_months, logcount_dict)
 
-        _add_diff_inplace(val_df, prev_ym_mask, ym_mask)
-        _add_clc_inplace(val_df, prev_ym_mask, ym_mask)
+    # ###################
+    # Insert logDecimal :
+    # ###################
+    logging.info("-- Add logDecimal columns")
+    _add_logdecimal(train_df)
+    _add_logdecimal(val_df)
 
-    mask = (~val_df['diff'].isnull())
-    assert (val_df[mask]['diff'] == val_df[mask]['targets_dec'] - val_df[mask]['lc_targets_dec']).all(), "Something is wrong"
+    # ###################
+    # age/renta/logdiff :
+    # ###################
+    logging.info("-- Transform age/renta/logdiff")
+    _process2(train_df)
+    _process2(val_df)
 
-    val_df.loc[val_df['diff'].isnull(), 'diff'] = -int(2**len(TARGET_LABELS))
-    val_df['diff'] = val_df['diff'].astype(np.int) 
-    
     return train_df, val_df
 
 
-#def load_test()
+def load_test():
+    """
+    Method to load test data
+    :return: test_df with
+    """
+    test_df = load_data2(TEST_FILE_PATH, [])
+    minimal_clean_data_inplace(test_df)
+    preprocess_data_inplace(test_df)
+    test_df = test_df.sort_values(['ncodpers'])
+    return test_df
+
+
+def get_age_group_index(age):
+    if age < 10:
+        return -3
+    elif age < 15:
+        return -2
+    elif age < 18:
+        return -1
+    elif age < 23:
+        return 0
+    elif age < 25:
+        return 1
+    elif age < 27:
+        return 2
+    elif age < 28:
+        return 3
+    elif age < 32:
+        return 4
+    elif age < 37:
+        return 5
+    elif age < 42:
+        return 6
+    elif age < 47:
+        return 7
+    elif age < 52:
+        return 8
+    elif age < 57:
+        return 9
+    elif age < 60:
+        return 10
+    elif age < 65:
+        return 11
+    elif age < 70:
+        return 12
+    elif age < 75:
+        return 13
+    elif age < 80:
+        return 14
+    else:
+        return 15
+
+def get_income_group_index(income):
+    if income < 0:
+        return -1
+    elif income < 45542.97:
+        return 1
+    elif income < 57629.67:
+        return 2
+    elif income < 68211.78:
+        return 3
+    elif income < 78852.39:
+        return 4
+    elif income < 90461.97:
+        return 5
+    elif income < 103855.23:
+        return 6
+    elif income < 120063.00:
+        return 7
+    elif income < 141347.49:
+        return 8
+    elif income < 173418.36:
+        return 9
+    elif income < 234687.12:
+        return 10
+    else:
+        return 11
