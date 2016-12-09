@@ -11,7 +11,8 @@ from common import TARGET_LABELS, targets_str_to_indices, targets_dec_to_indices
 
 TRAIN_FILE_PATH = os.path.join("..", "data", "train_ver2.csv")
 TEST_FILE_PATH = os.path.join("..", "data", "test_ver2.csv")
-LC_TARGET_LABELS = ['lc_' + t for t in TARGET_LABELS]
+LC_TARGET_LABELS = np.array(['lc_' + t for t in TARGET_LABELS])
+TARGET_LABELS_FRQ = np.array([t + '_frq' for t in TARGET_LABELS])
 
 LOGCOUNT_DICT = {}
 
@@ -66,10 +67,6 @@ def load_trainval(train_yearmonths_list, val_yearmonth, train_nb_clients=-1):
     # ###################
     # Insert logCount :
     # ###################
-    # months_ym_map = {}
-    # months = list(set(train_df['fecha_dato'].unique()) | set(val_df['fecha_dato'].unique()))
-    # for m in months:
-    #     months_ym_map[to_yearmonth(m)] = m
     LOGCOUNT_DICT = _compute_logcount_dict(train_df, val_df)
 
     logging.info("-- Add logCount columns")
@@ -89,7 +86,14 @@ def load_trainval(train_yearmonths_list, val_yearmonth, train_nb_clients=-1):
     logging.info("-- Transform age/renta/logdiff")
     _process2(train_df)
     _process2(val_df)
-
+    
+    # ###################
+    # Replace target values by frequencies
+    # ###################
+    logging.info("-- Replace target values by frequencies")
+    _replace_target_values(train_df)
+    _replace_target_values(val_df)
+    
     return train_df, val_df
 
 
@@ -127,6 +131,12 @@ def load_train_test(train_yearmonths_list):
     # ###################
     logging.info("-- Transform age/renta/logdiff")
     _process2(train_df)
+
+    # ###################
+    # Replace target values by frequencies
+    # ###################
+    logging.info("-- Replace target values by frequencies")
+    _replace_target_values(train_df)
 
 
     # Load test file :
@@ -206,6 +216,16 @@ def get_income_group_index(income):
     else:
         return 11
 
+    
+def _replace_target_values(df):
+    for t, nt in zip(TARGET_LABELS, TARGET_LABELS_FRQ):
+        counts = df[t].value_counts()
+        counts = counts/counts.sum()
+        values = df.loc[:, t].unique()
+        for v in values:
+            mask = df.loc[:, t] == v
+            df.loc[mask, nt] = counts[v]    
+    
     
 def _get_prev_ym(ym):
     return _to_ym(_to_ym_dec(ym) - _to_ym_dec(2))
