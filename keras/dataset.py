@@ -13,8 +13,9 @@ TRAIN_FILE_PATH = os.path.join("..", "data", "train_ver2.csv")
 TEST_FILE_PATH = os.path.join("..", "data", "test_ver2.csv")
 LC_TARGET_LABELS = np.array(['lc_' + t for t in TARGET_LABELS])
 TARGET_LABELS_FRQ = np.array([t + '_frq' for t in TARGET_LABELS])
+TARGET_LABELS_DIFF = np.array([t + '_diff' for t in TARGET_LABELS])
 
-LOGCOUNT_DICT = {}
+LOGCOUNT_DICT = None
 
 
 def dummies_to_str(row):
@@ -33,7 +34,7 @@ def decimal_to_dummies(value):
     return '{:024b}'.format(value)
 
 
-def load_trainval(train_yearmonths_list, val_yearmonth, train_nb_clients=-1):
+def load_trainval(train_yearmonths_list, val_yearmonths_list, train_nb_clients=-1, val_nb_clients='max'):
     """
     Method to load train/validation datasets
     :param train_yearmonths_list: should be sorted in ascending order without duplicates
@@ -49,20 +50,28 @@ def load_trainval(train_yearmonths_list, val_yearmonth, train_nb_clients=-1):
     # ###################
     # Load training data
     # ###################
-    logging.info("- Load training data")
-    yearmonth_list, train_df = _load(train_yearmonths_list, train_nb_clients)
+    logging.info("- Load training data : ")
+    yearmonth_list = _ym_list_to_load(train_yearmonths_list)
+    train_df = _load(yearmonth_list, train_nb_clients)
 
     _months_ym_map = _check(train_df, yearmonth_list)
-    _process1(train_df, train_yearmonths_list, _months_ym_map)
+    # Add target_str and last client choice
+    _process_add_target_str(train_df)
+    _process_add_clc(train_df, train_yearmonths_list, _months_ym_map)
+    _check_clc(train_df, yearmonth_list)
 
     # ###################
     # Load validation data
     # ###################
     logging.info("- Load validation data")
-    yearmonth_list, val_df = _load(val_yearmonth, 'max')
+    yearmonth_list = _ym_list_to_load(val_yearmonths_list)
+    val_df = _load(yearmonth_list, val_nb_clients)
 
     _months_ym_map = _check(val_df, yearmonth_list)
-    _process1(val_df, val_yearmonth, _months_ym_map)
+    # Add target_str and last client choice
+    _process_add_target_str(val_df)
+    _process_add_clc(val_df, val_yearmonths_list, _months_ym_map)
+    _check_clc(val_df, yearmonth_list)
 
     # ###################
     # Insert logCount :
@@ -88,63 +97,87 @@ def load_trainval(train_yearmonths_list, val_yearmonth, train_nb_clients=-1):
     _process2(val_df)
     
     # ###################
-    # Replace target values by frequencies
+    # Add target values frequencies
     # ###################
-    logging.info("-- Replace target values by frequencies")
-    _replace_target_values(train_df)
-    _replace_target_values(val_df)
-    
+    logging.info("-- Add target values frequencies")
+    _add_target_frq_values(train_df)
+    _add_target_frq_values(val_df)
+
+    # ###################
+    # Add target diff
+    # ###################
+    logging.info("-- Add target diff")
+    _add_target_diff_values(train_df)
+    _add_target_diff_values(val_df)
+
     return train_df, val_df
 
 
 def load_train_test(train_yearmonths_list):
     """
     Method to load full train and test data
-    :return: train_df, test_df
+    :return: train_df, test_df with last client choice columns
     """
-    logging.info("- Load training data")
-    yearmonth_list, train_df = _load(train_yearmonths_list, 'max')
-
-    months_ym_map = _check(train_df, yearmonth_list)
-    _process1(train_df, train_yearmonths_list, months_ym_map)
-
     # ###################
-    # Insert logCount :
-    # ###################
-    
-    
-    # Update LOGCOUNT_DICT : 
+    # Load training file :
+
+    logging.info("- Load training data : ")
+    yearmonth_list = _ym_list_to_load(train_yearmonths_list)
+    train_df = _load(yearmonth_list, 'max')
+
+    _months_ym_map = _check(train_df, yearmonth_list)
+    # Add target_str and last client choice
+    _process_add_target_str(train_df)
+    _process_add_clc(train_df, train_yearmonths_list, _months_ym_map)
+    _check_clc(train_df, yearmonth_list)
+
+    # Update LOGCOUNT_DICT :
     global LOGCOUNT_DICT
-    LOGCOUNT_DICT = _update_logcount_dict(LOGCOUNT_DICT, train_df)
-    
+    if LOGCOUNT_DICT is None:
+        LOGCOUNT_DICT = _get_logcount_dict(train_df)
+    else:
+        LOGCOUNT_DICT = _update_logcount_dict(LOGCOUNT_DICT, train_df)
+
+    # Insert logCount :
     logging.info("-- Add logCount columns")
     _add_logcount(train_df, LOGCOUNT_DICT)
 
-    # ###################
     # Insert logDecimal :
-    # ###################
     logging.info("-- Add logDecimal columns")
     _add_logdecimal(train_df)
 
-    # ###################
     # age/renta/logdiff :
-    # ###################
     logging.info("-- Transform age/renta/logdiff")
     _process2(train_df)
 
-    # ###################
-    # Replace target values by frequencies
-    # ###################
-    logging.info("-- Replace target values by frequencies")
-    _replace_target_values(train_df)
+    # Add target frequencies
+    logging.info("-- Add target frequencies")
+    _add_target_frq_values(train_df)
 
+    # Add target diff
+    logging.info("-- Add target diff")
+    _add_target_diff_values(train_df)
 
+    # ###################
     # Load test file :
-    logging.info("- Load test data")
-    test_df = load_data2(TEST_FILE_PATH, [])
-    minimal_clean_data_inplace(test_df)
-    preprocess_data_inplace(test_df)
-    test_df.sort_values(['ncodpers'], inplace=True)
+    logging.info("- Load test data : ")
+    last_month_train_df = _load([201605], -1)
+    test_df = _load([], -1, filepath=TEST_FILE_PATH)
+    # Select only clients from test file
+    test_clients = test_df['ncodpers'].unique()
+    last_month_train_df = last_month_train_df[last_month_train_df['ncodpers'].isin(test_clients)]
+    test_df = pd.concat([last_month_train_df, test_df], axis=0, ignore_index=True)
+
+    yearmonth_list = [201605, 201606]
+    _months_ym_map = _check(test_df, yearmonth_list)
+    # Add last client choice
+    train_month_mask = test_df['fecha_dato'] == _months_ym_map[201605]
+    _process_add_target_str(test_df, train_month_mask)
+    _process_add_clc(test_df, [201606], _months_ym_map)
+    _check_clc(test_df, yearmonth_list)
+
+    test_month_mask = test_df['fecha_dato'] == _months_ym_map[201606]
+    test_df = test_df[test_month_mask].drop(TARGET_LABELS, axis=1)
 
     return train_df, test_df
 
@@ -217,7 +250,7 @@ def get_income_group_index(income):
         return 11
 
     
-def _replace_target_values(df):
+def _add_target_frq_values(df):
     for t, nt in zip(TARGET_LABELS, TARGET_LABELS_FRQ):
         counts = df[t].value_counts()
         counts = counts/counts.sum()
@@ -226,27 +259,36 @@ def _replace_target_values(df):
             mask = df.loc[:, t] == v
             df.loc[mask, nt] = counts[v]    
     
-    
+
+def _add_target_diff_values(df):
+    mask = ~df['lc_targets_str'].isnull()
+    for t, lct, nt in zip(TARGET_LABELS, LC_TARGET_LABELS, TARGET_LABELS_DIFF):
+        diff = df[mask][t] - df[mask][lct]
+        diff[diff < 0] = 0
+        df.loc[mask, nt] = diff
+        df.loc[~mask, nt] = -99999
+
+
 def _get_prev_ym(ym):
     return _to_ym(_to_ym_dec(ym) - _to_ym_dec(2))
 
     
-def _add_diff_inplace(df, prev_ym_mask, ym_mask):
-    """
-    df should be imperatively sorted by clients in order to subtract and assign correctly
-    """
-    tmp_df = df[['fecha_dato', 'ncodpers']]
-    tmp_df.loc[:, 't'] = df[TARGET_LABELS].apply(dummies_to_decimal, axis=1)
-    v1 = tmp_df[ym_mask][['ncodpers', 't']]
-    v2 = tmp_df[prev_ym_mask][['ncodpers', 't']]
-    assert len(v1) == len(v2), "Length of current month and previous month are not equal"
-    v2.index = v1.index
-    df.loc[ym_mask, 'diff'] = v1['t'] - v2['t']
+# def _add_diff_inplace(df, prev_ym_mask, ym_mask):
+#     """
+#     df should be imperatively sorted by clients in order to subtract and assign correctly
+#     """
+#     tmp_df = df[['fecha_dato', 'ncodpers']]
+#     tmp_df.loc[:, 't'] = df[TARGET_LABELS].apply(dummies_to_decimal, axis=1)
+#     v1 = tmp_df[ym_mask][['ncodpers', 't']]
+#     v2 = tmp_df[prev_ym_mask][['ncodpers', 't']]
+#     assert len(v1) == len(v2), "Length of current month and previous month are not equal"
+#     v2.index = v1.index
+#     df.loc[ym_mask, 'diff'] = v1['t'] - v2['t']
 
 
 def _add_clc_inplace(df, prev_ym_mask, ym_mask):
     """
-    df should be imperatively sorted by clients in order to subtract and assign correctly
+    df should be imperatively sorted by clients in order to assign correctly
     """
     clients_last_choice = df[prev_ym_mask][['ncodpers'] + TARGET_LABELS]
     # Prepend "lc_" to column names
@@ -260,18 +302,30 @@ def _add_clc_inplace(df, prev_ym_mask, ym_mask):
     df.loc[ym_mask, 'lc_targets_str'] = df[ym_mask][LC_TARGET_LABELS].apply(dummies_to_str, axis=1)
 
 
-def _load(_yearmonths_list, nb_clients):
-    yearmonth_list = _ym_list_to_load(_yearmonths_list)
-    logging.info("- Load data : {}".format(yearmonth_list))
-    df = load_data2(TRAIN_FILE_PATH, yearmonth_list, nb_clients)
+def _check_clc(df, months):
+    # Ensure that last client choice is correct
+    for i, m in enumerate(months[:-1]):
+        m2 = months[i + 1]
+        tmask1 = df['fecha_dato'] == m
+        tmask2 = df['fecha_dato'] == m2
+
+        if df[tmask2]['lc_targets_str'].isnull().sum() == 0:
+            assert (df[tmask1]['targets_str'].values == df[tmask2][
+                'lc_targets_str'].values).all(), "Clients Last choice columns are not set correctly"
+
+
+def _load(_yearmonths_list, nb_clients, filepath=TRAIN_FILE_PATH):
+    logging.info("- Load data : {}".format(_yearmonths_list))
+    df = load_data2(filepath, _yearmonths_list, nb_clients)
     minimal_clean_data_inplace(df)
     preprocess_data_inplace(df)
-    return yearmonth_list, df
+    return df
 
 
 def _check(df, yearmonth_list):
     months = df['fecha_dato'].unique()
     clients = df['ncodpers'].unique()
+
     assert len(clients) == (df['ncodpers'].value_counts() == len(yearmonth_list)).sum()
     ll = len(clients)
     months_ym_map = {}
@@ -282,10 +336,17 @@ def _check(df, yearmonth_list):
     return months_ym_map
 
 
-def _process1(df, _yearmonths_list, _months_ym_map):
+def _process_add_target_str(df, mask=None):
+    if mask is None:
+        df.loc[:, 'targets_str'] = df[TARGET_LABELS].apply(dummies_to_str, axis=1)
+    else:
+        df.loc[mask, 'targets_str'] = df[mask][TARGET_LABELS].apply(dummies_to_str, axis=1)
+
+
+def _process_add_clc(df, _yearmonths_list, _months_ym_map):
     # Imperatively sort by clients in order to subtract and assign correctly
     df.sort_values(['ncodpers', 'fecha_dato'], inplace=True)
-    df.loc[:, 'targets_str'] = df[TARGET_LABELS].apply(dummies_to_str, axis=1)
+
     for ym in _yearmonths_list:
         logging.info("-- Process date : {}".format(ym))
         prev_ym = _get_prev_ym(ym)
@@ -327,15 +388,6 @@ def _compute_logcount_dict(_train_df, _val_df):
     train_logcount_dict = _get_logcount_dict(_train_df)
     val_logcount_dict = _get_logcount_dict(_val_df)
     return _merge_logcount_dicts(train_logcount_dict, val_logcount_dict)
-    #targets_str_to_val = list(set(train_targets_str) - set(val_targets_str))
-    #targets_str_to_train = list(set(val_targets_str) - set(train_targets_str))
-    #train_logcount_dict = pd.concat(
-    #    [train_logcount_dict, pd.Series(np.zeros((len(targets_str_to_train))), index=targets_str_to_train)])
-    #val_logcount_dict = pd.concat(
-    #    [val_logcount_dict, pd.Series(np.zeros((len(targets_str_to_val))), index=targets_str_to_val)])
-    #logcount_dict = (train_logcount_dict + val_logcount_dict).sort_values(ascending=False)
-    #logcount_dict /= logcount_dict.sum()
-    #return logcount_dict
 
 
 def _add_logcount(df, logcount_dict):
