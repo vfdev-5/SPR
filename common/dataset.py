@@ -5,9 +5,9 @@ import pandas as pd
 
 import logging
 
-from common import _to_ym_dec, _to_ym, to_yearmonth, dummies_to_str, dummies_to_decimal
-from common import load_data2, minimal_clean_data_inplace, preprocess_data_inplace
-from common import TARGET_LABELS
+from utils import _to_ym_dec, _to_ym, to_yearmonth, dummies_to_str, dummies_to_decimal
+from utils import load_data2, minimal_clean_data_inplace, preprocess_data_inplace
+from utils import TARGET_LABELS
 
 TRAIN_FILE_PATH = os.path.join("..", "data", "train_ver2.csv")
 TEST_FILE_PATH = os.path.join("..", "data", "test_ver2.csv")
@@ -18,7 +18,7 @@ TARGET_LABELS_DIFF = np.array([t + '_diff' for t in TARGET_LABELS])
 LOGCOUNT_DICT = None
 
 
-def load_trainval(train_yearmonths_list, val_yearmonths_list, train_nb_clients=-1, val_nb_clients='max'):
+def load_trainval(train_yearmonths_list, val_yearmonths_list=(), train_nb_clients=-1, val_nb_clients='max'):
     """
     Method to load train/validation datasets
     :param train_yearmonths_list: should be sorted in ascending order without duplicates
@@ -26,7 +26,9 @@ def load_trainval(train_yearmonths_list, val_yearmonths_list, train_nb_clients=-
     :param train_nb_clients:
     :return:
     cleaned, processed, with 'diff' and client last choice targets
-    train_df, val_df
+    train_df, val_df (if val_yearmonths_list is not [])
+    or
+    train_df if val_yearmonths_list is not specified
     """
 
     global LOGCOUNT_DICT
@@ -44,57 +46,69 @@ def load_trainval(train_yearmonths_list, val_yearmonths_list, train_nb_clients=-
     _process_add_clc(train_df, train_yearmonths_list, _months_ym_map)
     _check_clc(train_df, yearmonth_list)
 
-    # ###################
-    # Load validation data
-    # ###################
-    logging.info("- Load validation data")
-    yearmonth_list = _ym_list_to_load(val_yearmonths_list)
-    val_df = _load(yearmonth_list, val_nb_clients)
+    if len(val_yearmonths_list) > 0:
+        # ###################
+        # Load validation data
+        # ###################
+        logging.info("- Load validation data")
+        yearmonth_list = _ym_list_to_load(val_yearmonths_list)
+        val_df = _load(yearmonth_list, val_nb_clients)
 
-    _months_ym_map = _check(val_df, yearmonth_list)
-    # Add target_str and last client choice
-    _process_add_target_str(val_df)
-    _process_add_clc(val_df, val_yearmonths_list, _months_ym_map)
-    _check_clc(val_df, yearmonth_list)
+        _months_ym_map = _check(val_df, yearmonth_list)
+        # Add target_str and last client choice
+        _process_add_target_str(val_df)
+        _process_add_clc(val_df, val_yearmonths_list, _months_ym_map)
+        _check_clc(val_df, yearmonth_list)
 
-    # ###################
-    # Insert logCount :
-    # ###################
-    LOGCOUNT_DICT = _compute_logcount_dict(train_df, val_df)
+        # ###################
+        # Insert logCount :
+        # ###################
+        LOGCOUNT_DICT = _compute_logcount_dict(train_df, val_df)
+    else:
+        val_df = None
+        LOGCOUNT_DICT = _get_logcount_dict(train_df)
+
 
     logging.info("-- Add logCount columns")
     _add_logcount(train_df, LOGCOUNT_DICT)
-    _add_logcount(val_df, LOGCOUNT_DICT)
+    if val_df is not None:
+        _add_logcount(val_df, LOGCOUNT_DICT)
 
     # ###################
     # Insert logDecimal :
     # ###################
     logging.info("-- Add logDecimal columns")
     _add_logdecimal(train_df)
-    _add_logdecimal(val_df)
+    if val_df is not None:
+        _add_logdecimal(val_df)
 
     # ###################
     # age/renta/logdiff :
     # ###################
     logging.info("-- Transform age/renta/logdiff")
     _process2(train_df)
-    _process2(val_df)
+    if val_df is not None:
+        _process2(val_df)
     
     # ###################
     # Add target values frequencies
     # ###################
     logging.info("-- Add target values frequencies")
     _add_target_frq_values(train_df)
-    _add_target_frq_values(val_df)
+    if val_df is not None:
+        _add_target_frq_values(val_df)
 
     # ###################
     # Add target diff
     # ###################
     logging.info("-- Add target diff")
     _add_target_diff_values(train_df)
-    _add_target_diff_values(val_df)
+    if val_df is not None:
+        _add_target_diff_values(val_df)
 
-    return train_df, val_df
+    if val_df is not None:
+        return train_df, val_df
+    return train_df
 
 
 def load_train_test(train_yearmonths_list):
@@ -240,9 +254,10 @@ def _add_target_frq_values(df):
         counts = counts/counts.sum()
         values = df.loc[:, t].unique()
         for v in values:
-            mask = df.loc[:, t] == v
-            df.loc[mask, nt] = counts[v]    
-    
+            if v > 0:  # Set frequency of choosing current product
+                mask = df.loc[:, t] == v
+                df.loc[mask, nt] = counts[v]
+
 
 def _add_target_diff_values(df):
     mask = ~df['lc_targets_str'].isnull()

@@ -95,6 +95,22 @@ def dummies_to_decimal(row):
     return log(int(output, 2)+1)
 
 
+def dummies_to_str(row):
+    output = ''
+    for v in row.values:
+        output += str(int(v))
+    return output
+
+
+def dummies_to_decimal(row):
+    output = dummies_to_str(row)
+    return int(output, 2)
+
+
+def decimal_to_dummies(value):
+    return '{:024b}'.format(value)
+
+
 def load_data(filename, yearmonth_start, yearmonth_end, nb_clients=-1):
 
     """
