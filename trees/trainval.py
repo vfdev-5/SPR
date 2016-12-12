@@ -39,23 +39,32 @@ def train_all(X_train, Y_train,
 
     :X_train: a pd.DataFrame of training dataset containing features, `(nb_samples, nb_features)`
     :Y_train: a pd.DataFrame of training dataset containing labels, `(nb_samples, nb_labels)`
-    :samples_masks_list: a list, e.g. `[samples_mask_1, samples_mask_2, ...]` with samples_mask_i is a function to produce a boolean pd.DataFrame . Used only for training.
+    :samples_masks_list: a list, e.g. `[samples_mask_1, samples_mask_2, ...]` with samples_mask_i is a function to
+        produce a boolean pd.DataFrame . Used only for training.
     If an empty list is providede, all samples are used for training
 
-    :features_masks_list: a dictionary, e.g. `{fm1_name: features_mask_1, fm2_name: features_mask_2, ...]` with `features_mask_i` is a list of feature column names. They can oversect.
+    :features_masks_list: a dictionary, e.g. `{fm1_name: features_mask_1, fm2_name: features_mask_2, ...]` with
+        `features_mask_i` is a list of feature column names. They can oversect.
         Feature mask can be None to indicate all features.
-    :labels_masks_list: a dictionary, e.g.`{lm1_name: labels_mask_1, lm2_name: labels_mask_2, ...}` with `labels_mask_i` is a list of labels column names. They can oversect.
-        Label mask can be None to indicate all labels.
-    :models_dict: a dictionary of functions to create a model, e.g. `{'rf': create_RF, 'nn': create_NN, 'gbt': create_GBT}`
+    :labels_masks_list: a dictionary, e.g.`{lm1_name: labels_mask_1, lm2_name: labels_mask_2, ...}` with `labels_mask_i`
+        is a list of labels column names. They can oversect. Labels mask can be None to train over all labels.
+    :models_dict: a dictionary of functions to create a model, e.g.
+        `{'rf': create_RF, 'nn': create_NN, 'gbt': create_GBT}`
 
     In `kwargs` it is possible to define :
         :verbose: True/False
-        :models_pipelines: (optional) a dictionary, e.g. `{model_name: [(feature_mask_name, label_mask_name), ...]}`.
-        It defines specific connection between a model and features/labels to train on. Useful, when a model can not train on
-        all types of labels. It is possible to specify only one mask name `feature_mask_name` or `label_mask_name` with None, e.g. (None, label_mask_name).
-        If models_pipelines is defined and a model is not added into models_pipelines. It will be used on all combinations of feature mask/label mask.
+        :models_pipelines: (optional) a dictionary, e.g.
+            `{model_name: [(samples_mask_code, features_mask_name, labels_mask_name), ...]}`.
+            It defines specific connection between a model and samples/features/labels to train on.
+            This is useful, when a model, for example, can not train on all types of labels.
+            It is possible to specify only one mask name `samples_mask_name` or `features_mask_name` or
+            `labels_mask_name` with None, e.g. (None, labels_mask_name). If models_pipelines is defined and a model is
+             not added into models_pipelines, it will be used on all combinations of samples mask/features mask/labels
+             mask. Parameter `samples_mask_code` can be either an integer index to correspond to a samples mask from
+             `samples_masks_list`, either None or 'all' which means to train on all samples.
 
-    :return: a list of trained estimators, e.g. `[([features_mask_name, labels_mask_name, model_name], estimator_object, fit_accuracy), ...]`
+    :return: a list of trained estimators, e.g.
+        `[([features_mask_name, labels_mask_name, model_name], estimator_object, accuracy), ...]`
     """
     logging.debug("---------------")
     logging.info("-- Train all --")
@@ -195,7 +204,7 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
         features_mask_name, labels_mask_name, model_name = estimator[0]
         features_mask = features_masks_dict[features_mask_name]
         labels_mask = labels_masks_dict[labels_mask_name]
-        logging.info("-- Process : model={}, features_mask={}, labels_mask={}".format(model_name, features_mask_name,
+        logging.debug("-- Process : model={}, features_mask={}, labels_mask={}".format(model_name, features_mask_name,
                                                                                       labels_mask_name))
 
         x_val, _ = prepare_to_test(X_val[features_mask])

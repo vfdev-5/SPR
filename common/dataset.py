@@ -173,9 +173,12 @@ def load_train_test(train_yearmonths_list):
     _process_add_target_str(test_df, train_month_mask)
     _process_add_clc(test_df, [201606], _months_ym_map)
     _check_clc(test_df, yearmonth_list)
+    # Add target frequencies
+    logging.info("-- Add target frequencies")
+    _add_target_frq_values(test_df, train_month_mask)
 
-    test_month_mask = test_df['fecha_dato'] == _months_ym_map[201606]
-    test_df = test_df[test_month_mask].drop(TARGET_LABELS, axis=1)
+    # test_month_mask = test_df['fecha_dato'] == _months_ym_map[201606]
+    # test_df = test_df[test_month_mask].drop(TARGET_LABELS, axis=1)
 
     return train_df, test_df
 
@@ -248,14 +251,17 @@ def get_income_group_index(income):
         return 11
 
     
-def _add_target_frq_values(df):
+def _add_target_frq_values(df, mask=None):
     for t, nt in zip(TARGET_LABELS, TARGET_LABELS_FRQ):
         counts = df[t].value_counts()
         counts = counts/counts.sum()
         values = df.loc[:, t].unique()
         for v in values:
-            mask = df.loc[:, t] == v
-            df.loc[mask, nt] = counts[v]
+            m = df.loc[:, t] == v
+            if mask is not None:
+                df.loc[mask & m, nt] = counts[v]
+            else:
+                df.loc[m, nt] = counts[v]
             # if v > 0:  # Set frequency of choosing current product
                 # df.loc[:, nt] = counts[v]
 
