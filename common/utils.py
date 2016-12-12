@@ -373,6 +373,21 @@ def apk(actual, predicted, k=7):
     return score / min(len(actual), k)
 
 
+def map7_score0(y, y_pred):
+    """
+    y is an ndarray of indicies of added products: e.g. [[2, 13], [2], [24, 14, 5], ...]
+    y_pred is an ndarray of indicies of predictions: e.g. [[2, 13], [2], [24, 14, 5], ...]
+    """
+    map7 = 0.0
+    for added_products, predictions in zip(y, y_pred):
+        score = apk(added_products, predictions)    
+        map7 += score            
+
+    map7 /= len(y)
+    logging.info('-- Predicted map7 score: {}'.format(map7))
+    return map7
+
+
 def map7_score(y, y_pred, clients_last_choice):
     """
     y is an ndarray of indicies: e.g. [[2, 13], [2], [24, 14, 5], ...]

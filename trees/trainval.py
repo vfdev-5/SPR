@@ -71,13 +71,14 @@ def train_all(X_train, Y_train,
     verbose = False if 'verbose' not in kwargs else kwargs['verbose']
     models_pipelines = None if 'models_pipelines' not in kwargs else kwargs['models_pipelines']
 
-    if len(samples_masks_list) == 0:
-        samples_masks_list.append(lambda df: df.index.isin(df.index[:]))
+    # Add 'All' samples mask as the last one
+    _samples_masks_list = list(samples_masks_list)
+    _samples_masks_list.append(lambda x, y: x.index.isin(x.index[:]))
 
     estimators = []
 
-    for i, samples_mask in enumerate(samples_masks_list):
-        mask = samples_mask(X_train)
+    for samples_mask_index, samples_mask in enumerate(_samples_masks_list):
+        mask = samples_mask(X_train, Y_train)
         X_train_ = X_train[mask]
         Y_train_ = Y_train[mask]
 
@@ -87,37 +88,47 @@ def train_all(X_train, Y_train,
             for labels_mask_name in labels_masks_dict:
                 labels_mask = labels_masks_dict[labels_mask_name]
                 Y_train__ = Y_train_[labels_mask] if labels_mask is not None else Y_train_
-                logging.info("-- Process : sample_mask={}/{}, features_mask={}, labels_mask={}"
-                             .format(len(X_train_), len(X_train), features_mask_name, labels_mask_name))
                 x_train, y_train = prepare_to_fit(X_train__, Y_train__)
-                logging.debug("--- Train data shapes : {}, {}".format(x_train.shape, y_train.shape))
 
                 if y_train.shape[1] == 1:
                     # avoid DataConversionWarning
                     y_train = y_train.ravel()
 
                 for model_name in models_dict:
-                    logging.debug("-- Create the model : %s" % model_name)
-
                     can_fit = True
                     if models_pipelines is not None and model_name in models_pipelines:
                         can_fit = False
                         pipelines = models_pipelines[model_name]
-                        # pipelines = [(feature_mask_name, label_mask_name), ...]
-                        for _features_mask_name, _labels_mask_name in pipelines:
+                        # pipelines = [(samples_mask_code, feature_mask_name, label_mask_name), ...]
+                        for _samples_mask_code, _features_mask_name, _labels_mask_name in pipelines:
+                            b0 = _samples_mask_code is None
                             b1 = _features_mask_name is None
                             b2 = _labels_mask_name is None
-                            assert not (b1 and b2), "Feature_mask_name and label_mask_name can not be both None"
+
+                            assert not (b0 and b1 and b2), \
+                                "Samples mask name and features mask name and labels mask name can not be all None"
+
+                            b0 = False
+                            if (_samples_mask_code is not None and _samples_mask_code == 'all' and samples_mask_index == len(_samples_masks_list)-1) or \
+                                (_samples_mask_code is None and samples_mask_index < len(_samples_masks_list)-1) or \
+                                    (_samples_mask_code is not None and _samples_mask_code == samples_mask_index):
+                                b0 = True
+
                             if _features_mask_name is not None and _features_mask_name == features_mask_name:
                                 b1 = True
                             if _labels_mask_name is not None and _labels_mask_name == labels_mask_name:
                                 b2 = True
-                            can_fit = b1 and b2
+                            can_fit = b0 and b1 and b2
                             if can_fit:
                                 break
 
                     if not can_fit:
                         continue
+
+                    logging.info("-- Process : sample_mask={}/{}, features_mask={}, labels_mask={}"
+                                 .format(len(X_train_), len(X_train), features_mask_name, labels_mask_name))
+                    logging.debug("--- Train data shapes : {}, {}".format(x_train.shape, y_train.shape))
+                    logging.debug("-- Create the model : %s" % model_name)
 
                     estimator = models_dict[model_name](input_shape=x_train.shape, output_shape=y_train.shape)
                     logging.debug("--- Fit the model")
@@ -168,16 +179,40 @@ def merge_predictions(Y_probas, y_probas, labels_mask, mode='sum', **kwargs):
     return Y_probas
 
 
+def score_estimators(estimators, X_val, Y_val, features_masks_dict, labels_masks_dict, **kwargs):
+    """
+    Method to score estimators
+    :estimators: a list of object of type ([features_mask_name, labels_mask_name, model_name], estimator_object, fit_accuracy)
+    :X_val: a pd.DataFrame of shape `(nb_samples, nb_features)`
+    :Y_val: (default `None`) a pd.DataFrame of shape `(nb_samples, nb_labels)`.
+    
+    :return: list of [features_mask_name, labels_mask_name, model_name, score]
+    """
+    scores = []
+    for estimator in estimators:
+        # estimator is ([features_mask_name, labels_mask_name, model_name], estimator_object)
+        features_mask_name, labels_mask_name, model_name = estimator[0]
+        features_mask = features_masks_dict[features_mask_name]
+        labels_mask = labels_masks_dict[labels_mask_name]
+        x_val, y_val = prepare_to_test(X_val[features_mask], Y_val[labels_mask])
+        logging.debug("--- Test data shapes : {}".format(x_val.shape))
+        score = estimator[1].score(x_val, y_val)
+        logging.info("-- Score : model={}, features_mask={}, labels_mask={} -> {}"
+                     .format(model_name, features_mask_name, labels_mask_name, score))
+        scores.append([features_mask_name, labels_mask_name, model_name, score])
+    return scores
+        
+
 def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, labels, **kwargs):
     """
-    Method to compute predictions using `estmators` from a test dataset `X_val`
+    Method to compute predictions using `estimators` from a test dataset `X_val`
 
     :estimators: a list of object of type ([features_mask_name, labels_mask_name, model_name], estimator_object, fit_accuracy)
     :X_val: a pd.DataFrame of shape `(nb_samples, nb_features)`
     :features_masks_dict: a dictionary of features masks (see train_all method)
     :labels_masks_dict: a dictionary of labels masks (see train_all method)
     :labels: a list of all available labels for the output
-
+    
     In `kwargs` it is possible to define :
         :transform_proba_func: a function to transform computed probabilities into a custom form.
         Function signature should be `foo(Y_probas, **kwargs)`
@@ -218,13 +253,19 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
             y_probas = y_probas.reshape((y_probas.shape[0], 1))
         # multiply by accuracy :
         y_probas *= estimator[2]
-        Y_probas = merge_predictions(Y_probas, y_probas, labels_mask, **kwargs)
-
+        Y_probas = merge_predictions(Y_probas, y_probas, labels_mask, **kwargs)   
+    
+    Y_probas_sum = Y_probas.sum(axis=1)
+    mask = Y_probas_sum > 0
+    Y_probas.loc[mask, :] = Y_probas[mask].div(Y_probas_sum[mask], axis=0)
+    
     if transform_proba_func is not None:
+        y_preds = transform_proba_func(Y_probas, **kwargs)
         if return_probas:
-            return transform_proba_func(Y_probas, **kwargs), Y_probas
+            return y_preds, Y_probas
         else:
-            return transform_proba_func(Y_probas, **kwargs)
+            return y_preds
+      
     return Y_probas
 
 
