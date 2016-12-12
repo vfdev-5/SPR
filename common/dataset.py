@@ -254,9 +254,10 @@ def _add_target_frq_values(df):
         counts = counts/counts.sum()
         values = df.loc[:, t].unique()
         for v in values:
-            if v > 0:  # Set frequency of choosing current product
-                mask = df.loc[:, t] == v
-                df.loc[mask, nt] = counts[v]
+            mask = df.loc[:, t] == v
+            df.loc[mask, nt] = counts[v]
+            # if v > 0:  # Set frequency of choosing current product
+                # df.loc[:, nt] = counts[v]
 
 
 def _add_target_diff_values(df):
