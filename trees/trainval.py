@@ -149,17 +149,10 @@ def probas_to_indices(Y_probas, **kwargs):
 
 
 def merge_predictions(Y_probas, y_probas, labels_mask, mode='sum', **kwargs):
-    first_time = Y_probas[labels_mask].isnull().all().all()
     if mode == 'max':
-        if not first_time:
-            Y_probas.loc[:, labels_mask] = np.maximum(Y_probas.loc[:, labels_mask], y_probas)
-        else:
-            Y_probas.loc[:, labels_mask] = y_probas
+        Y_probas.loc[:, labels_mask] = np.maximum(Y_probas.loc[:, labels_mask], y_probas)
     elif mode == 'sum':
-        if not first_time:
-            Y_probas.loc[:, labels_mask] = Y_probas.loc[:, labels_mask] + y_probas
-        else:
-            Y_probas.loc[:, labels_mask] = y_probas
+        Y_probas.loc[:, labels_mask] = Y_probas.loc[:, labels_mask] + y_probas
     else:
         raise Exception("Existing data merge is not yet implemented")
 
@@ -196,12 +189,13 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
     transform_proba_func = None if 'transform_proba_func' not in kwargs else kwargs['transform_proba_func']
 
     Y_probas = pd.DataFrame(index=X_val.index, columns=labels)
+    Y_probas = Y_probas.fillna(0.0)
     for estimator in estimators:
         # estimator is ([features_mask_name, labels_mask_name, model_name], estimator_object)
         features_mask_name, labels_mask_name, model_name = estimator[0]
         features_mask = features_masks_dict[features_mask_name]
         labels_mask = labels_masks_dict[labels_mask_name]
-        logging.debug("-- Process : model={}, features_mask={}, labels_mask={}".format(model_name, features_mask_name,
+        logging.info("-- Process : model={}, features_mask={}, labels_mask={}".format(model_name, features_mask_name,
                                                                                       labels_mask_name))
 
         x_val, _ = prepare_to_test(X_val[features_mask])
