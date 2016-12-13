@@ -77,13 +77,19 @@ def train_all(X_train, Y_train,
     prepare_to_fit_func = prepare_to_fit if 'prepare_to_fit_func' not in kwargs else kwargs['prepare_to_fit_func']
 
     # Add 'All' samples mask as the last one
+    def _all_samples_mask(x, y):
+        return x.index.isin(x.index[:])
+    
     _samples_masks_list = list(samples_masks_list)
-    _samples_masks_list.append(lambda x, y: x.index.isin(x.index[:]))
+    _samples_masks_list.append(_all_samples_mask)
 
     estimators = []
 
     for samples_mask_index, samples_mask in enumerate(_samples_masks_list):
-        mask = samples_mask(X_train, Y_train)
+        if isinstance(samples_mask, str) and samples_mask == 'all':
+            mask = _all_samples_mask(X_train, Y_train)
+        else:
+            mask = samples_mask(X_train, Y_train)
         X_train_ = X_train[mask]
         Y_train_ = Y_train[mask]
 
@@ -100,7 +106,8 @@ def train_all(X_train, Y_train,
                     y_train = y_train.ravel()
 
                 for model_name in models_dict:
-                    can_fit = True
+                    can_fit = True if samples_mask_index < len(_samples_masks_list)-1 else False
+                    
                     if models_pipelines is not None and model_name in models_pipelines:
                         can_fit = False
                         pipelines = models_pipelines[model_name]
