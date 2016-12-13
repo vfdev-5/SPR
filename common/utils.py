@@ -57,9 +57,7 @@ def targets_str_to_indices(targets_str, **kwargs):
 def targets_dec_to_indices(targets_dec):
     out = []
     for v in targets_dec:
-        print v, 
         s = decimal_to_dummies(v)
-        print s, 
         ind = [i for i, c in enumerate(s) if int(c) == 1]
         out.append(ind)
         print ind 
@@ -69,7 +67,6 @@ def targets_dec_to_indices(targets_dec):
 
 def targets_to_labels(targets, tl):
     out = []
-    tl = np.array(TARGET_LABELS2)
     for t in targets:
         out.append(tl[np.where(t > 0)])
     return out
@@ -77,7 +74,7 @@ def targets_to_labels(targets, tl):
 
 def target_str_to_labels(targets_str, tl):
     indices = targets_str_to_indices(targets_str)
-    return targets_indices_to_labels(indices)
+    return targets_indices_to_labels(indices, tl)
 
 
 def targets_indices_to_labels(targets_indices, tl):
@@ -86,13 +83,6 @@ def targets_indices_to_labels(targets_indices, tl):
     for i in targets_indices:
         out.append(tl[i])
     return out
-
-
-def dummies_to_decimal(row):
-    output = ''
-    for v in row.values:
-        output += str(int(v))
-    return log(int(output, 2)+1)
 
 
 def dummies_to_str(row):
@@ -107,8 +97,9 @@ def dummies_to_decimal(row):
     return int(output, 2)
 
 
-def decimal_to_dummies(value):
-    return '{:024b}'.format(value)
+def decimal_to_dummies(value, l=24):
+    format_str = '{:0%ib}' % l
+    return format_str.format(value)
 
 
 def load_data(filename, yearmonth_start, yearmonth_end, nb_clients=-1):

@@ -7,7 +7,7 @@ from sklearn.model_selection import KFold
 
 import sys
 sys.path.append("../common")
-from utils import map7_score, TARGET_LABELS, targets_str_to_indices
+from utils import map7_score, map7_score0, TARGET_LABELS, targets_str_to_indices
 
 
 def prepare_to_fit(X_train, Y_train):
@@ -63,6 +63,10 @@ def train_all(X_train, Y_train,
              mask. Parameter `samples_mask_code` can be either an integer index to correspond to a samples mask from
              `samples_masks_list`, either None or 'all' which means to train on all samples.
 
+        :prepare_to_fit_func: (optional), a function to transform X_train, Y_train into acceptable ndarrays.
+            Default, `prepare_to_fit` is used
+
+
     :return: a list of trained estimators, e.g.
         `[([features_mask_name, labels_mask_name, model_name], estimator_object, accuracy), ...]`
     """
@@ -70,6 +74,7 @@ def train_all(X_train, Y_train,
     logging.info("-- Train all --")
     verbose = False if 'verbose' not in kwargs else kwargs['verbose']
     models_pipelines = None if 'models_pipelines' not in kwargs else kwargs['models_pipelines']
+    prepare_to_fit_func = prepare_to_fit if 'prepare_to_fit_func' not in kwargs else kwargs['prepare_to_fit_func']
 
     # Add 'All' samples mask as the last one
     _samples_masks_list = list(samples_masks_list)
@@ -88,9 +93,9 @@ def train_all(X_train, Y_train,
             for labels_mask_name in labels_masks_dict:
                 labels_mask = labels_masks_dict[labels_mask_name]
                 Y_train__ = Y_train_[labels_mask] if labels_mask is not None else Y_train_
-                x_train, y_train = prepare_to_fit(X_train__, Y_train__)
+                x_train, y_train = prepare_to_fit_func(X_train__, Y_train__)
 
-                if y_train.shape[1] == 1:
+                if len(y_train.shape) > 1 and y_train.shape[1] == 1:
                     # avoid DataConversionWarning
                     y_train = y_train.ravel()
 
@@ -109,8 +114,10 @@ def train_all(X_train, Y_train,
                                 "Samples mask name and features mask name and labels mask name can not be all None"
 
                             b0 = False
-                            if (_samples_mask_code is not None and _samples_mask_code == 'all' and samples_mask_index == len(_samples_masks_list)-1) or \
-                                (_samples_mask_code is None and samples_mask_index < len(_samples_masks_list)-1) or \
+                            if (_samples_mask_code is not None and _samples_mask_code == 'all' and
+                                        samples_mask_index == len(_samples_masks_list)-1) or \
+                                    (len(_samples_masks_list) == 1) or \
+                                    (_samples_mask_code is None and samples_mask_index < len(_samples_masks_list)-1) or \
                                     (_samples_mask_code is not None and _samples_mask_code == samples_mask_index):
                                 b0 = True
 
@@ -168,7 +175,7 @@ def probas_to_indices(Y_probas, **kwargs):
     return np.array(out)
 
 
-def merge_predictions(Y_probas, y_probas, labels_mask, mode='sum', **kwargs):
+def merge_probas(Y_probas, y_probas, labels_mask, mode='sum', **kwargs):
     if mode == 'max':
         Y_probas.loc[:, labels_mask] = np.maximum(Y_probas.loc[:, labels_mask], y_probas)
     elif mode == 'sum':
@@ -185,16 +192,23 @@ def score_estimators(estimators, X_val, Y_val, features_masks_dict, labels_masks
     :estimators: a list of object of type ([features_mask_name, labels_mask_name, model_name], estimator_object, fit_accuracy)
     :X_val: a pd.DataFrame of shape `(nb_samples, nb_features)`
     :Y_val: (default `None`) a pd.DataFrame of shape `(nb_samples, nb_labels)`.
-    
+
+    In `kwargs` it is possible to define :
+        :prepare_to_test_func: (optional), a function to transform X_val, Y_val(=None) into acceptable ndarrays.
+            Default, `prepare_to_test` is used
+
+
     :return: list of [features_mask_name, labels_mask_name, model_name, score]
     """
+    prepare_to_test_func = prepare_to_test if 'prepare_to_test_func' not in kwargs else kwargs['prepare_to_test_func']
+
     scores = []
     for estimator in estimators:
         # estimator is ([features_mask_name, labels_mask_name, model_name], estimator_object)
         features_mask_name, labels_mask_name, model_name = estimator[0]
         features_mask = features_masks_dict[features_mask_name]
         labels_mask = labels_masks_dict[labels_mask_name]
-        x_val, y_val = prepare_to_test(X_val[features_mask], Y_val[labels_mask])
+        x_val, y_val = prepare_to_test_func(X_val[features_mask], Y_val[labels_mask])
         logging.debug("--- Test data shapes : {}".format(x_val.shape))
         score = estimator[1].score(x_val, y_val)
         logging.info("-- Score : model={}, features_mask={}, labels_mask={} -> {}"
@@ -218,6 +232,26 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
         Function signature should be `foo(Y_probas, **kwargs)`
 
         :verbose: True/False
+        :prepare_to_test_func: (optional), a function to transform X_val, Y_val(=None) into acceptable ndarrays.
+        Default, `prepare_to_test` is used. For example,
+        ```
+            def prepare_to_test(X_val, Y_val=None):
+                x_val = X_val.values
+                x_val = StandardScaler().fit_transform(x_val)
+                y_val = Y_val.values if Y_val is not None else None
+                return x_val, y_val
+        ```
+        :probas_to_labels_probas_func: (optional), a function to transform predicted class probabilities to output
+        labels probabilities. Default, function is identity. Example of such function :
+        ```
+            # y_probas.shape = (n_samples, n_classes)
+            # class_indices = np.array([c1, c2, ...]), len(class_indices) = n_classes,
+            #   class_indices[np.argmax(y_probas, axis=1)], max probability classes
+            # output_labels
+            def probas_to_labels_probas(y_probas, class_indices, output_labels):
+                pass
+
+        ```
 
     :return:
         if `transform_proba_func` is not defined, predicted label probabilites `Y_probas` (pd.DataFrame) are returned.
@@ -229,8 +263,11 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
     logging.debug("-----------------")
     logging.info("-- Predict all --")
     verbose = False if 'verbose' not in kwargs else kwargs['verbose']
+    prepare_to_test_func = prepare_to_test if 'prepare_to_test_func' not in kwargs else kwargs['prepare_to_test_func']
+
     return_probas = False if 'return_probas' not in kwargs else kwargs['return_probas']
     transform_proba_func = None if 'transform_proba_func' not in kwargs else kwargs['transform_proba_func']
+    probas_to_labels_probas_func = None if 'probas_to_labels_probas_func' not in kwargs else kwargs['probas_to_labels_probas_func']
 
     Y_probas = pd.DataFrame(index=X_val.index, columns=labels)
     Y_probas = Y_probas.fillna(0.0)
@@ -241,19 +278,23 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
         labels_mask = labels_masks_dict[labels_mask_name]
         logging.debug("-- Process : model={}, features_mask={}, labels_mask={}".format(model_name, features_mask_name,
                                                                                       labels_mask_name))
-
-        x_val, _ = prepare_to_test(X_val[features_mask])
+        x_val, _ = prepare_to_test_func(X_val[features_mask])
         logging.debug("--- Test data shapes : {}".format(x_val.shape))
 
-        y_probas = estimator[1].predict(x_val)
+        y_probas = estimator[1].predict_proba(x_val)
         logging.debug("--- Predicted data shape : {}".format(y_probas.shape))
+
+        if probas_to_labels_probas_func is not None:
+            y_probas = probas_to_labels_probas_func(y_probas, estimator[1].classes_, labels_mask)
+
         if y_probas.dtype == np.int:
             y_probas = y_probas.astype(np.float)
         if len(y_probas.shape) == 1:
             y_probas = y_probas.reshape((y_probas.shape[0], 1))
+
         # multiply by accuracy :
         y_probas *= estimator[2]
-        Y_probas = merge_predictions(Y_probas, y_probas, labels_mask, **kwargs)   
+        Y_probas = merge_probas(Y_probas, y_probas, labels_mask, **kwargs)
     
     Y_probas_sum = Y_probas.sum(axis=1)
     mask = Y_probas_sum > 0
@@ -267,6 +308,33 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
             return y_preds
       
     return Y_probas
+
+
+def cross_val_score0(data, nb_folds=5, **kwargs):
+    logging.info("- Cross validation : ")
+    x_df, y_df = data
+    kf = KFold(n_splits=nb_folds)
+    scores = []
+
+    count = 0
+    for train_index, test_index in kf.split(range(x_df.shape[0])):
+        count += 1
+        logging.info("\n\n\t\t-- Fold : %i / %i\n" % (count, nb_folds))
+
+        X_train, X_val = x_df.loc[x_df.index[train_index], :], x_df.loc[x_df.index[test_index], :]
+        Y_train, Y_val = y_df.loc[y_df.index[train_index], :], y_df.loc[y_df.index[test_index], :]
+
+        estimators = train_all(X_train, Y_train, **kwargs)
+        if 'return_probas' in kwargs:
+            y_preds, Y_probas = predict_all(estimators, X_val, **kwargs)
+        else:
+            y_preds = predict_all(estimators, X_val, **kwargs)
+
+        y_val = targets_str_to_indices(Y_val[TARGET_LABELS].values)
+        logging.info("- Compute map7 score")
+        scores.append(map7_score0(y_val, y_preds))
+
+    return np.array(scores)
 
 
 def cross_val_score(data, nb_folds=5, **kwargs):

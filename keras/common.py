@@ -107,8 +107,9 @@ def dummies_to_decimal(row):
     return int(output, 2)
 
 
-def decimal_to_dummies(value):
-    return '{:024b}'.format(value)
+def decimal_to_dummies(value, l):
+    format_str = '{:0%ib}' % l
+    return format_str.format(value)
 
 
 def load_data(filename, yearmonth_start, yearmonth_end, nb_clients=-1):
