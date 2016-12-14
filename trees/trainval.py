@@ -288,7 +288,11 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
         x_val, _ = prepare_to_test_func(X_val[features_mask])
         logging.debug("--- Test data shapes : {}".format(x_val.shape))
 
-        y_probas = estimator[1].predict_proba(x_val)
+        if estimator[1].n_outputs_ > 1:
+            y_probas = estimator[1].predict(x_val)
+        else:
+            y_probas = estimator[1].predict_proba(x_val)
+
         logging.debug("--- Predicted data shape : {}".format(y_probas.shape))
 
         if probas_to_labels_probas_func is not None:
@@ -303,9 +307,9 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
         y_probas *= estimator[2]
         Y_probas = merge_probas(Y_probas, y_probas, labels_mask, **kwargs)
     
-    Y_probas_sum = Y_probas.sum(axis=1)
-    mask = Y_probas_sum > 0
-    Y_probas.loc[mask, :] = Y_probas[mask].div(Y_probas_sum[mask], axis=0)
+    # Y_probas_max = Y_probas.max(axis=1)
+    # mask = Y_probas_max > 0
+    # Y_probas.loc[mask, :] = Y_probas[mask].div(Y_probas_max[mask], axis=0)
     
     if transform_proba_func is not None:
         y_preds = transform_proba_func(Y_probas, **kwargs)
