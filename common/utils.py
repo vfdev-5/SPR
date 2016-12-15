@@ -30,14 +30,21 @@ MONTH_START_END_ROW_INDICES = {
     201605: [12715856, 13647308]
 }
 
-TARGET_LABELS = ['ind_ahor_fin_ult1', 'ind_aval_fin_ult1', 'ind_cco_fin_ult1',
- 'ind_cder_fin_ult1', 'ind_cno_fin_ult1', 'ind_ctju_fin_ult1',
- 'ind_ctma_fin_ult1', 'ind_ctop_fin_ult1', 'ind_ctpp_fin_ult1',
- 'ind_deco_fin_ult1', 'ind_deme_fin_ult1', 'ind_dela_fin_ult1',
- 'ind_ecue_fin_ult1', 'ind_fond_fin_ult1', 'ind_hip_fin_ult1',
- 'ind_plan_fin_ult1', 'ind_pres_fin_ult1', 'ind_reca_fin_ult1',
- 'ind_tjcr_fin_ult1', 'ind_valo_fin_ult1', 'ind_viv_fin_ult1',
- 'ind_nomina_ult1', 'ind_nom_pens_ult1', 'ind_recibo_ult1']
+FEATURES_NAMES = [
+    u'ind_empleado', u'pais_residencia', u'sexo', u'age', u'ind_nuevo', u'antiguedad', u'indrel', u'ult_fec_cli_1t',
+    u'indrel_1mes', u'tiprel_1mes', u'indresi', u'indext', u'conyuemp', u'canal_entrada', u'indfall', u'nomprov',
+    u'ind_actividad_cliente', u'renta', u'segmento'
+]
+
+TARGET_LABELS = [
+    'ind_ahor_fin_ult1', 'ind_aval_fin_ult1', 'ind_cco_fin_ult1',
+'ind_cder_fin_ult1', 'ind_cno_fin_ult1', 'ind_ctju_fin_ult1',
+'ind_ctma_fin_ult1', 'ind_ctop_fin_ult1', 'ind_ctpp_fin_ult1',
+'ind_deco_fin_ult1', 'ind_deme_fin_ult1', 'ind_dela_fin_ult1',
+'ind_ecue_fin_ult1', 'ind_fond_fin_ult1', 'ind_hip_fin_ult1',
+'ind_plan_fin_ult1', 'ind_pres_fin_ult1', 'ind_reca_fin_ult1',
+'ind_tjcr_fin_ult1', 'ind_valo_fin_ult1', 'ind_viv_fin_ult1',
+'ind_nomina_ult1', 'ind_nom_pens_ult1', 'ind_recibo_ult1']
 
 TARGET_LABELS2 = np.array([
     "Saving Account", "Guarantees", "Current Accounts", "Derivada Account", "Payroll Account", "Junior Account",

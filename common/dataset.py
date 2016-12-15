@@ -18,6 +18,53 @@ TARGET_LABELS_DIFF = np.array([t + '_diff' for t in TARGET_LABELS])
 LOGCOUNT_DICT = None
 
 
+def load_train_yearmonth(yearmonth, n_clients='max'):
+    """
+    Method to load preprocessed data corresponding to `yearmonth` from the train dataset.
+    :param yearmonth:
+    :param n_clients: integer > 0 or 'max' corresponds to a number of clients to load with 'diff' fields containing  
+    or -1 to load all client and do not provide 'diff' fields  
+    :return: pd.DataFrame
+    """
+
+    filename = "train_%s__%s.csv" % (str(yearmonth), str(n_clients))
+    filepath = '../data/generated/' + filename
+
+    if os.path.exists(filepath) and os.path.isfile(filepath):
+        train_df = pd.read_csv('../data/generated/' + filename)
+        return train_df
+
+    # else:
+    logging.info("- Load training data : ")
+    yearmonth_list = _ym_list_to_load(yearmonth)
+    train_df = _load(yearmonth_list, n_clients)
+
+    _months_ym_map = _check(train_df, yearmonth_list)
+    # Add target_str and last client choice
+    _process_add_target_str(train_df)
+    _process_add_clc(train_df, yearmonth, _months_ym_map)
+    _check_clc(train_df, yearmonth_list)
+    logcount_dict = _get_logcount_dict(train_df)
+
+    logging.info("-- Add logCount columns")
+    _add_logcount(train_df, logcount_dict)
+
+    logging.info("-- Add logDecimal columns")
+    _add_logdecimal(train_df)
+
+    logging.info("-- Transform age/renta/logdiff")
+    _process2(train_df)
+
+    logging.info("-- Add target values frequencies")
+    _add_target_frq_values(train_df)
+
+    logging.info("-- Add target diff")
+    _add_target_diff_values(train_df)
+    train_df.to_csv(filepath, index=False, index_label=False)
+
+    return train_df
+
+
 def load_trainval(train_yearmonths_list, val_yearmonths_list=(), train_nb_clients=-1, val_nb_clients='max'):
     """
     Method to load train/validation datasets
@@ -109,6 +156,13 @@ def load_trainval(train_yearmonths_list, val_yearmonths_list=(), train_nb_client
     if val_df is not None:
         return train_df, val_df
     return train_df
+
+
+def load_test():
+    """
+    Method to load whole test data
+    :return: pd.DataFrame
+    """
 
 
 def load_train_test(train_yearmonths_list):
