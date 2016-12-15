@@ -288,10 +288,17 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
         x_val, _ = prepare_to_test_func(X_val[features_mask])
         logging.debug("--- Test data shapes : {}".format(x_val.shape))
 
-        if estimator[1].n_outputs_ > 1:
-            y_probas = estimator[1].predict(x_val)
+        if hasattr(estimator[1], 'n_outputs_'):
+            if estimator[1].n_outputs_ > 1:
+                # Pass here when y_train is of shape [n_samples, ???]
+                y_probas = estimator[1].predict(x_val)
+            else:
+                # Pass here when y_train is of shape [n_samples, n_classes] as dummies
+                # -> y_probas looks like [[p1, p2, ... pn], ...]
+                y_probas = estimator[1].predict_proba(x_val)
         else:
-            y_probas = estimator[1].predict_proba(x_val)
+            y_probas = estimator[1].predict(x_val)
+
 
         logging.debug("--- Predicted data shape : {}".format(y_probas.shape))
 
