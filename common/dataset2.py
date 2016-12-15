@@ -45,17 +45,17 @@ def load_X(yearmonth, supp_yearmonths_list=(), n_clients=-1):
     X = load_data2(fname, [yearmonth], n_clients)
     minimal_clean_data_inplace(X)
     preprocess_data_inplace(X)
-    yearmonth_map = _get_yearmonth_map(X)
+    # yearmonth_map = _get_yearmonth_map(X)
 
-    yearmonth_str = yearmonth_map[yearmonth]
+    # yearmonth_str = yearmonth_map[yearmonth]
     logging.info("- Process targets for one yearmonth : %i" % yearmonth)
-    process_targets(X, yearmonth_str)
-    process_features(X, yearmonth_str)
+    process_targets(X)
+    process_features(X)
 
-    # ref_clients = X['ncodpers'].unique()
-    # for ym in supp_yearmonths_list:
-    #     fname = TEST_FILE_PATH if ym == 201606 else TRAIN_FILE_PATH
-    #     X_ym = load_data2(fname, [ym])
+    ref_clients = X['ncodpers'].unique()
+    for ym in supp_yearmonths_list:
+        fname = TEST_FILE_PATH if ym == 201606 else TRAIN_FILE_PATH
+        X_ym = load_data2(fname, [ym])
 
 
 
@@ -66,8 +66,8 @@ def load_X(yearmonth, supp_yearmonths_list=(), n_clients=-1):
     return X
 
 
-def process_features(df, yearmonth_str):
-    mask = df['fecha_dato'] == yearmonth_str
+def process_features(df, yearmonth_str=''):
+    mask = df['fecha_dato'] == yearmonth_str if len(yearmonth_str) > 0 else None
     replace_income(df, mask)
     replace_age(df, mask)
 
@@ -86,8 +86,8 @@ def replace_income(df, mask=None):
         df.loc[mask, 'renta'] = df[mask]['renta'].apply(get_income_group_index)
 
 
-def process_targets(df, yearmonth_str, label_index=0):
-    mask = df['fecha_dato'] == yearmonth_str
+def process_targets(df, yearmonth_str='', label_index=0):
+    mask = df['fecha_dato'] == yearmonth_str if len(yearmonth_str) > 0 else None
     targets_str_label = 'targets_str' if label_index == 0 else 'targets_str_%i' % label_index
     add_targets_str(df, targets_str_label, mask=mask)
     targets_logdecimal_label = 'targets_logdec' if label_index == 0 else 'targets_logdec_%i' % label_index

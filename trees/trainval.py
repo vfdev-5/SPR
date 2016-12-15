@@ -299,7 +299,6 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
         else:
             y_probas = estimator[1].predict(x_val)
 
-
         logging.debug("--- Predicted data shape : {}".format(y_probas.shape))
 
         if probas_to_labels_probas_func is not None:
