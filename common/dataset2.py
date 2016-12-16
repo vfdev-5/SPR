@@ -52,10 +52,10 @@ def load_X(yearmonth, supp_yearmonths_list=(), n_clients=-1):
     process_targets(X)
     process_features(X)
 
-    ref_clients = X['ncodpers'].unique()
-    for ym in supp_yearmonths_list:
-        fname = TEST_FILE_PATH if ym == 201606 else TRAIN_FILE_PATH
-        X_ym = load_data2(fname, [ym])
+    # ref_clients = X['ncodpers'].unique()
+    # for ym in supp_yearmonths_list:
+    #     fname = TEST_FILE_PATH if ym == 201606 else TRAIN_FILE_PATH
+    #     X_ym = load_data2(fname, [ym])
 
 
 
