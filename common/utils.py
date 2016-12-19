@@ -209,6 +209,14 @@ def _to_nb_months(ym_dec):
     return 12 * nb_years + int(zz * 12.0 + 0.5)
 
 
+def _get_prev_ym(ym):
+    return _to_ym(_to_ym_dec(ym) - _to_ym_dec(2))
+
+
+def _get_year_january(ym):
+    return _to_ym(int(_to_ym_dec(ym)) + 0.01)
+
+
 def minimal_clean_data_inplace(df):
     """
     Script to clean data in input DataFrame

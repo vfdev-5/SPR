@@ -5,7 +5,8 @@ import pandas as pd
 import logging
 from time import time
 
-from utils import _to_ym_dec, _to_nb_months, to_yearmonth, dummies_to_str, dummies_to_decimal
+from utils import _to_ym_dec, _to_nb_months, to_yearmonth, _get_prev_ym, _get_year_january
+from utils import dummies_to_str, dummies_to_decimal
 from utils import load_data2, minimal_clean_data_inplace, preprocess_data_inplace
 from utils import TARGET_LABELS, FEATURES_NAMES
 
@@ -37,62 +38,83 @@ match_features_groups = [
 TARGET_GROUP_DEC_LABELS = ['targets_dec_g%i' % i for i in range(len(TARGET_GROUPS))]
 
 
-def load_X(yearmonth, supp_yearmonths_list=(), n_clients=-1):
+def load_trainval(yearmonth, n_clients='max'):
     """
-    :param yearmonth:
+    :param yearmonth: year-month data on which targets to train
     :param supp_yearmonths_list:
-    :param n_clients: integer > 0 or '-1'
+    :param n_clients: integer > 0 or 'max'
     :return: pd.DataFrame
     """
 
-    filename = "dataset_X_%s_%s__%i.csv" % (
+    filename = "trainval_%s__%s.csv" % (
         str(yearmonth),
-        '+'.join([str(ym) for ym in supp_yearmonths_list]),
-        n_clients
+        str(n_clients)
     )
     filepath = '../data/generated/' + filename
     if os.path.exists(filepath) and os.path.isfile(filepath):
         logging.info("- Found already generated file, load it")
-        X = pd.read_csv('../data/generated/' + filename)
-        return X
+        df = pd.read_csv('../data/generated/' + filename)
+        return df
     # else:
-    fname = TEST_FILE_PATH if yearmonth == 201606 else TRAIN_FILE_PATH
-    logging.info("- Load file : %s, yearmonth=%i, n_clients=%i" % (fname, yearmonth, n_clients))
-    X = load_data2(fname, [yearmonth], n_clients)
-    minimal_clean_data_inplace(X)
-    preprocess_data_inplace(X)
-    # yearmonth_map = _get_yearmonth_map(X)
 
-    # yearmonth_str = yearmonth_map[yearmonth]
-    logging.info("- Process targets for one yearmonth : %i" % yearmonth)
-    process_targets(X)
-    process_features(X)
+    assert yearmonth < 201606, "Yearmonth should be less 201606"
 
-    X = X.sort_values(['ncodpers'])
-    ref_clients = X['ncodpers'].unique()
+    fname = TRAIN_FILE_PATH
+    yearmonths_list = [yearmonth, _get_prev_ym(yearmonth)]
 
+    logging.info("- Load file : %s, yearmonth=%i, n_clients=%s" % (fname, yearmonth, str(n_clients)))
+    df = load_data2(fname, yearmonths_list, n_clients)
+
+    minimal_clean_data_inplace(df)
+    preprocess_data_inplace(df)
+
+    months_ym_map = _get_yearmonth_map(df)
+    df = df.sort_values(['ncodpers', 'fecha_dato'])
+
+    for i, ym in enumerate(yearmonths_list):
+        
+        logging.info("-- Process targets for one yearmonth : %i" % ym)
+        process_targets(df, months_ym_map[ym], i)
+        logging.info("-- Process features for one yearmonth : %i" % ym)
+        process_features(df, months_ym_map[ym])
+
+
+    mask0 = df['fecha_dato'] == months_ym_map[yearmonths_list[0]]
+    mask1 = df['fecha_dato'] == months_ym_map[yearmonths_list[1]]
+    df1 = df[mask1]
+    df = df[mask0]
+    df1.index = df.index
+    assert (df['ncodpers'] == df1['ncodpers']).all(), "Clients are not alignable"
+
+    # compute_diffs(df, df1, label_index=1)
+    add_targets_columns(df, df1)
+    return df
+
+    ref_clients = df['ncodpers'].unique()
+    supp_yearmonths_list = [_get_year_january(yearmonth), yearmonth - 100]
+    ll = len(ref_clients)
+    index_offset = 2
     for i, ym in enumerate(supp_yearmonths_list):
         logging.info("- Add a supplementary data : %i" % ym)
-        fname = TEST_FILE_PATH if ym == 201606 else TRAIN_FILE_PATH
-        X_ym = load_data2(fname, [ym])
-        minimal_clean_data_inplace(X_ym)
-        preprocess_data_inplace(X_ym)
-        process_features(X_ym)
+        df_ym = load_data2(fname, [ym], ll)
+        minimal_clean_data_inplace(df_ym)
+        preprocess_data_inplace(df_ym)
+        process_features(df_ym)
 
-        clients = X_ym['ncodpers'].unique()
-        missing_clients = np.array(list(set(ref_clients) - set(clients)))
-        if missing_clients.shape[0] > 0:
-            X_ym = add_missing_clients(X_ym, ym, X, yearmonth, ref_clients)
+        df_ym = add_zero_missing_clients(df_ym, ym, df, yearmonth, ref_clients)
 
-        X_ym = X_ym[X_ym['ncodpers'].isin(ref_clients)].sort_values(['ncodpers'])
-        X_ym.index = X.index
-        assert (X['ncodpers'] == X_ym['ncodpers']).all(), "Clients are not alignable"
+        df_ym = df_ym[df_ym['ncodpers'].isin(ref_clients)].sort_values(['ncodpers'])
+        df_ym.index = df.index
+        assert (df['ncodpers'] == df_ym['ncodpers']).all(), "Clients are not alignable"
 
-        process_targets(X_ym, label_index=i+1)
-        compute_diffs(X, X_ym, label_index=i+1)
-        add_targets_columns(X, X_ym)
+        process_targets(df_ym, label_index=i+index_offset)
+        compute_diffs(df, df_ym, label_index=i+index_offset)
+        add_targets_columns(df, df_ym)
 
-    return X
+    # logging.info("Store computed data as file : %s" % filepath)
+    # df.to_csv(filepath, index=False, index_label=False)
+
+    return df
 
 
 def features_to_str(features):
@@ -121,7 +143,6 @@ def replace_income(df, mask=None):
 
 def process_targets(df, yearmonth_str='', label_index=0):
     mask = df['fecha_dato'] == yearmonth_str if len(yearmonth_str) > 0 else None
-
     targets_str_label = 'targets_str' if label_index == 0 else 'targets_str_%i' % label_index
     add_targets_str(df, targets_str_label, mask=mask)
 
@@ -151,8 +172,8 @@ def compute_diffs(df1, df2, label_index):
 
 def compute_targets_diff(df1, df2, label_index):
     field_name = 'targets_diff_%i' % label_index
-    df1.loc[:, field_name] = df1[TARGET_LABELS].apply(dummies_to_decimal, axis=1) - df2[TARGET_LABELS].apply(
-        dummies_to_decimal, axis=1)
+    df1.loc[:, field_name] = df1[TARGET_LABELS].apply(dummies_to_decimal, axis=1) -\
+                             df2[TARGET_LABELS].apply(dummies_to_decimal, axis=1)
 
 
 def compute_targets_group_diff(df1, df2, label_index):
@@ -164,6 +185,7 @@ def compute_targets_group_diff(df1, df2, label_index):
 
 def add_targets_columns(df1, df2):
     cols = list(set(df2.columns) - set(FEATURES_NAMES + ['fecha_alta', 'fecha_dato', 'ncodpers'] + TARGET_LABELS))
+    print cols
     for c in cols:
         df1.loc[:, c] = df2.loc[:, c]
 
@@ -205,6 +227,29 @@ def add_target_frq_values(df, mask=None, label_index=0):
                 df.loc[mask & m, nt] = counts[v]
             else:
                 df.loc[m, nt] = counts[v]
+
+
+def add_zero_missing_clients(X_ym_, ym, X_, ref_ym, ref_clients):
+    delta_months = _to_nb_months(_to_ym_dec(ref_ym) - _to_ym_dec(ym))
+
+    clients = X_ym_['ncodpers'].unique()
+    missing_clients = np.array(list(set(ref_clients) - set(clients)))
+    logging.info("-- Compute missing clients : {}/{}".format(missing_clients.shape[0], ref_clients.shape[0]))
+
+    # If remains missing clients, setup them with zero targets
+    if missing_clients.shape[0] > 0:
+        logging.warn("--- Setup them with zero targets")
+        missing_clients_mask = X_['ncodpers'].isin(missing_clients)
+        supp_data_df = X_.loc[missing_clients_mask, ['ncodpers', 'fecha_alta', 'fecha_dato'] + FEATURES_NAMES].copy()
+        supp_data_df.loc[:, 'fecha_dato'] = X_ym_['fecha_dato'].unique()[0]
+        supp_data_df.loc[:, 'antiguedad'] -= delta_months
+
+        for t in TARGET_LABELS:
+            supp_data_df[t] = 0
+
+        X_ym_ = pd.concat([X_ym_, supp_data_df], ignore_index=True)
+
+    return X_ym_
 
 
 def add_missing_clients(X_ym_, ym, X_, ref_ym, ref_clients):
