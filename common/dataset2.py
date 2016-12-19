@@ -21,6 +21,8 @@ TARGET_GROUPS = [
 ]
 
 TARGET_LABELS_FRQ = np.array([t + '_frq' for t in TARGET_LABELS])
+LAST_TARGET_LABELS = np.array(['last_' + t for t in TARGET_LABELS])
+ADDED_TARGET_LABELS = np.array(['added_' + t for t in TARGET_LABELS])
 
 NP_FEATURES_NAMES = np.array(FEATURES_NAMES)
 match_features_groups = [
@@ -54,41 +56,60 @@ def load_trainval(yearmonth, n_clients='max'):
     if os.path.exists(filepath) and os.path.isfile(filepath):
         logging.info("- Found already generated file, load it")
         df = pd.read_csv('../data/generated/' + filename)
+
         return df
     # else:
 
     assert yearmonth < 201606, "Yearmonth should be less 201606"
 
     fname = TRAIN_FILE_PATH
-    yearmonths_list = [yearmonth, _get_prev_ym(yearmonth)]
 
+    # load main month and the previous one:
+    yearmonths_list = [yearmonth, _get_prev_ym(yearmonth)]
     logging.info("- Load file : %s, yearmonth=%i, n_clients=%s" % (fname, yearmonth, str(n_clients)))
     df = load_data2(fname, yearmonths_list, n_clients)
-
     minimal_clean_data_inplace(df)
     preprocess_data_inplace(df)
 
+    # Separate data into [main month] and [previous month]
     months_ym_map = _get_yearmonth_map(df)
     df = df.sort_values(['ncodpers', 'fecha_dato'])
-
-    for i, ym in enumerate(yearmonths_list):
-        
-        logging.info("-- Process targets for one yearmonth : %i" % ym)
-        process_targets(df, months_ym_map[ym], i)
-        logging.info("-- Process features for one yearmonth : %i" % ym)
-        process_features(df, months_ym_map[ym])
-
-
     mask0 = df['fecha_dato'] == months_ym_map[yearmonths_list[0]]
     mask1 = df['fecha_dato'] == months_ym_map[yearmonths_list[1]]
     df1 = df[mask1]
     df = df[mask0]
     df1.index = df.index
+
+    # Transform main month:
+    process_features(df)
+
+    # Append products from the previous month:
+    append_columns(df, df1[TARGET_LABELS], LAST_TARGET_LABELS)
+
+    # Compute added products from previous month
+    compute_added_products(df)
+
+
+    return df
+
+    for i, _df in enumerate([df, df1]):
+        logging.info("-- Process targets for one yearmonth : %i" % yearmonths_list[i])
+        process_targets(_df, label_index=i)
+        logging.info("-- Process features for one yearmonth : %i" % yearmonths_list[i])
+        process_features(_df)
+
     assert (df['ncodpers'] == df1['ncodpers']).all(), "Clients are not alignable"
 
-    # compute_diffs(df, df1, label_index=1)
+    compute_diffs(df, df1, label_index=1)
+    # rename previous month TARGET_LABELS to LC_TARGET_LABELS
+    rename_dict = dict((i1, i2) for i1, i2 in zip(TARGET_LABELS, LAST_TARGET_LABELS))
+    df1.rename(columns=rename_dict, inplace=True)
+    # add new computed columns from df1 to df
     add_targets_columns(df, df1)
-    return df
+    # Compute added products between yearmonth and previous month
+    compute_products_info(df)
+
+    assert not df.isnull().any().all(), "Some nan values appeared"
 
     ref_clients = df['ncodpers'].unique()
     supp_yearmonths_list = [_get_year_january(yearmonth), yearmonth - 100]
@@ -111,10 +132,33 @@ def load_trainval(yearmonth, n_clients='max'):
         compute_diffs(df, df_ym, label_index=i+index_offset)
         add_targets_columns(df, df_ym)
 
+
+
     # logging.info("Store computed data as file : %s" % filepath)
     # df.to_csv(filepath, index=False, index_label=False)
 
+
+
     return df
+
+
+def compute_added_products(df):
+    assert TARGET_LABELS[0] in df.columns and LAST_TARGET_LABELS[0] in df.columns, "TARGET_LABELS and LAST_TARGET_LABELS should exist in df"
+    for c1, c2, nc in zip(TARGET_LABELS, LAST_TARGET_LABELS, ADDED_TARGET_LABELS):
+        diff = df[c1] - df[c2]
+        diff[diff < 0] = 0
+        df.loc[:, nc] = diff
+    df.loc[:, 'added_targets'] = df[ADDED_TARGET_LABELS].sum(axis=1)
+
+
+def append_columns(df1, df2, new_columns=()):
+    assert df1.index == df2.index, "Indices are not aligned"
+    if len(new_columns) > 0:
+        assert len(df2.columns) == len(new_columns), "Columns are not properly matched"
+    else:
+        new_columns = df2.columns
+    for c, nc in zip(df2.columns, new_columns):
+        df1.loc[:, nc] = df2[c]
 
 
 def features_to_str(features):
@@ -185,7 +229,6 @@ def compute_targets_group_diff(df1, df2, label_index):
 
 def add_targets_columns(df1, df2):
     cols = list(set(df2.columns) - set(FEATURES_NAMES + ['fecha_alta', 'fecha_dato', 'ncodpers'] + TARGET_LABELS))
-    print cols
     for c in cols:
         df1.loc[:, c] = df2.loc[:, c]
 
@@ -238,7 +281,7 @@ def add_zero_missing_clients(X_ym_, ym, X_, ref_ym, ref_clients):
 
     # If remains missing clients, setup them with zero targets
     if missing_clients.shape[0] > 0:
-        logging.warn("--- Setup them with zero targets")
+        logging.info("--- Setup them with zero targets")
         missing_clients_mask = X_['ncodpers'].isin(missing_clients)
         supp_data_df = X_.loc[missing_clients_mask, ['ncodpers', 'fecha_alta', 'fecha_dato'] + FEATURES_NAMES].copy()
         supp_data_df.loc[:, 'fecha_dato'] = X_ym_['fecha_dato'].unique()[0]
