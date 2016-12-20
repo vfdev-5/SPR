@@ -42,10 +42,21 @@ TARGET_GROUP_DEC_LABELS = ['targets_dec_g%i' % i for i in range(len(TARGET_GROUP
 
 def load_trainval(yearmonth, n_clients='max'):
     """
+
+    Method to load train/validation datasets
+
+    X = [Processed Features](yearmonth) +
+        [Processed Targets](yearmonth - 1) +
+        [Processed Targets](yearmonth - 1, Jan) +
+        [Processed Targets](yearmonth - 1, yearmonth - 100)
+
+    Y = [Targets](yearmonth) +
+        [Targets](yearmonth - 1) +
+        [Diff targets](yearmonth, yearmonth - 1)
+
     :param yearmonth: year-month data on which targets to train
-    :param supp_yearmonths_list:
     :param n_clients: integer > 0 or 'max'
-    :return: pd.DataFrame
+    :return: X, Y dataframes
     """
 
     filename = "trainval_%s__%s.csv" % (
@@ -82,12 +93,16 @@ def load_trainval(yearmonth, n_clients='max'):
 
     # Transform main month:
     process_features(df)
+    add_targets_str(df)
 
     # Append products from the previous month:
     append_columns(df, df1[TARGET_LABELS], LAST_TARGET_LABELS)
+    add_targets_str(df, 'last_targets_str', target_labels=LAST_TARGET_LABELS)
 
     # Compute added products from previous month
     compute_added_products(df)
+    add_targets_str(df, 'added_targets_str', target_labels=ADDED_TARGET_LABELS)
+
 
 
     return df
@@ -152,7 +167,7 @@ def compute_added_products(df):
 
 
 def append_columns(df1, df2, new_columns=()):
-    assert df1.index == df2.index, "Indices are not aligned"
+    assert (df1.index == df2.index).all(), "Indices are not aligned"
     if len(new_columns) > 0:
         assert len(df2.columns) == len(new_columns), "Columns are not properly matched"
     else:
@@ -233,11 +248,11 @@ def add_targets_columns(df1, df2):
         df1.loc[:, c] = df2.loc[:, c]
 
 
-def add_targets_str(df, field_name='targets_str', mask=None):
+def add_targets_str(df, field_name='targets_str', mask=None, target_labels=TARGET_LABELS):
     if mask is None:
-        df.loc[:, field_name] = df[TARGET_LABELS].apply(dummies_to_str, axis=1)
+        df.loc[:, field_name] = df[target_labels].apply(dummies_to_str, axis=1)
     else:
-        df.loc[mask, field_name] = df[mask][TARGET_LABELS].apply(dummies_to_str, axis=1)
+        df.loc[mask, field_name] = df[mask][target_labels].apply(dummies_to_str, axis=1)
 
 
 def add_targets_group_decimal(df, group, field_name, mask=None):
