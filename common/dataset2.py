@@ -20,7 +20,7 @@ TARGET_GROUPS = [
     [0, 1, 3, 9, 16],
 ]
 
-TARGET_LABELS_FRQ = np.array([t + '_frq' for t in TARGET_LABELS])
+TARGET_LABELS_FRQ = np.array(['freq_' + t for t in TARGET_LABELS])
 LAST_TARGET_LABELS = np.array(['last_' + t for t in TARGET_LABELS])
 ADDED_TARGET_LABELS = np.array(['added_' + t for t in TARGET_LABELS])
 
@@ -38,6 +38,27 @@ match_features_groups = [
 ]
 
 TARGET_GROUP_DEC_LABELS = ['targets_dec_g%i' % i for i in range(len(TARGET_GROUPS))]
+
+
+def TARGET_GROUPS_DEC(i):
+    return [g + '_%i' % i for g in TARGET_GROUP_DEC_LABELS]
+
+
+def PROCESSED_TARGETS(i):
+    out = ['targets_str_%i' % i, 'targets_logdec_%i' % i]
+    out += TARGET_GROUPS_DEC(i)
+    out += [f + '_%i' % i for f in TARGET_LABELS_FRQ]
+    return out
+
+
+def DIFF_TARGETS(i, j):
+    out = ['diff_targets_dec_%i%i' % (i, j)]
+    out += DIFF_TARGET_GROUPS_DEC(i, j)
+    return out
+
+
+def DIFF_TARGET_GROUPS_DEC(i, j):
+    return ['diff_' + g + '_%i%i' % (i, j) for g in TARGET_GROUP_DEC_LABELS]
 
 
 def load_trainval(yearmonth, n_clients='max'):
@@ -59,16 +80,28 @@ def load_trainval(yearmonth, n_clients='max'):
     :return: X, Y dataframes
     """
 
-    filename = "trainval_%s__%s.csv" % (
-        str(yearmonth),
-        str(n_clients)
-    )
+    def _get_XY(df):
+        X = df[['ncodpers', 'fecha_dato'] +
+               FEATURES_NAMES +
+               PROCESSED_TARGETS(1) +
+               PROCESSED_TARGETS(2) +
+               PROCESSED_TARGETS(3) +
+               DIFF_TARGETS(1, 2) +
+               DIFF_TARGETS(1, 3)
+        ]
+
+        Y = df[['targets_str', 'last_targets_str', 'added_targets_str'] +
+               TARGET_LABELS + LAST_TARGET_LABELS.tolist() + ADDED_TARGET_LABELS.tolist()
+        ]
+        return X, Y
+
+    filename = "trainval_%s__%s.csv" % (str(yearmonth), str(n_clients))
     filepath = '../data/generated/' + filename
     if os.path.exists(filepath) and os.path.isfile(filepath):
         logging.info("- Found already generated file, load it")
         df = pd.read_csv('../data/generated/' + filename)
-
-        return df
+        X, Y = _get_XY(df)
+        return X, Y
     # else:
 
     assert yearmonth < 201606, "Yearmonth should be less 201606"
@@ -90,6 +123,7 @@ def load_trainval(yearmonth, n_clients='max'):
     df1 = df[mask1]
     df = df[mask0]
     df1.index = df.index
+    assert (df['ncodpers'] == df1['ncodpers']).all(), "Clients are not alignable"
 
     # Transform main month:
     process_features(df)
@@ -103,29 +137,13 @@ def load_trainval(yearmonth, n_clients='max'):
     compute_added_products(df)
     add_targets_str(df, 'added_targets_str', target_labels=ADDED_TARGET_LABELS)
 
-
-
-    return df
-
-    for i, _df in enumerate([df, df1]):
-        logging.info("-- Process targets for one yearmonth : %i" % yearmonths_list[i])
-        process_targets(_df, label_index=i)
-        logging.info("-- Process features for one yearmonth : %i" % yearmonths_list[i])
-        process_features(_df)
-
-    assert (df['ncodpers'] == df1['ncodpers']).all(), "Clients are not alignable"
-
-    compute_diffs(df, df1, label_index=1)
-    # rename previous month TARGET_LABELS to LC_TARGET_LABELS
-    rename_dict = dict((i1, i2) for i1, i2 in zip(TARGET_LABELS, LAST_TARGET_LABELS))
-    df1.rename(columns=rename_dict, inplace=True)
-    # add new computed columns from df1 to df
-    add_targets_columns(df, df1)
-    # Compute added products between yearmonth and previous month
-    compute_products_info(df)
+    # Process targets of yearmonth - 1
+    process_targets(df1, label_index=1)
+    append_columns(df, df1[PROCESSED_TARGETS(1)])
 
     assert not df.isnull().any().all(), "Some nan values appeared"
 
+    # Load supplementary data
     ref_clients = df['ncodpers'].unique()
     supp_yearmonths_list = [_get_year_january(yearmonth), yearmonth - 100]
     ll = len(ref_clients)
@@ -144,21 +162,24 @@ def load_trainval(yearmonth, n_clients='max'):
         assert (df['ncodpers'] == df_ym['ncodpers']).all(), "Clients are not alignable"
 
         process_targets(df_ym, label_index=i+index_offset)
-        compute_diffs(df, df_ym, label_index=i+index_offset)
-        add_targets_columns(df, df_ym)
+        append_columns(df, df_ym[PROCESSED_TARGETS(i+index_offset)])
 
+        fn = 'diff_targets_dec_%i%i' % (1, i+index_offset)
+        df.loc[:, fn] = compute_targets_diff(df1[TARGET_LABELS], df_ym[TARGET_LABELS])
 
+        res = compute_targets_group_diff(df1[TARGET_GROUPS_DEC(1)],
+                                         df_ym[TARGET_GROUPS_DEC(i+index_offset)])
+        append_columns(df, res, DIFF_TARGET_GROUPS_DEC(1, i+index_offset))
 
-    # logging.info("Store computed data as file : %s" % filepath)
-    # df.to_csv(filepath, index=False, index_label=False)
-
-
-
-    return df
+    logging.info("Store computed data as file : %s" % filepath)
+    df.to_csv(filepath, index=False, index_label=False)
+    X, Y = _get_XY(df)
+    return X, Y
 
 
 def compute_added_products(df):
-    assert TARGET_LABELS[0] in df.columns and LAST_TARGET_LABELS[0] in df.columns, "TARGET_LABELS and LAST_TARGET_LABELS should exist in df"
+    assert TARGET_LABELS[0] in df.columns and LAST_TARGET_LABELS[0] in df.columns, \
+        "TARGET_LABELS and LAST_TARGET_LABELS should exist in df"
     for c1, c2, nc in zip(TARGET_LABELS, LAST_TARGET_LABELS, ADDED_TARGET_LABELS):
         diff = df[c1] - df[c2]
         diff[diff < 0] = 0
@@ -224,28 +245,32 @@ def _get_yearmonth_map(df):
     return yearmonth_map
 
 
-def compute_diffs(df1, df2, label_index):
-    compute_targets_diff(df1, df2, label_index)
-    compute_targets_group_diff(df1, df2, label_index)
+# def compute_diffs(df1, df2, label_index):
+#     compute_targets_diff(df1, df2, label_index)
+#     compute_targets_group_diff(df1, df2, label_index)
 
 
-def compute_targets_diff(df1, df2, label_index):
-    field_name = 'targets_diff_%i' % label_index
-    df1.loc[:, field_name] = df1[TARGET_LABELS].apply(dummies_to_decimal, axis=1) -\
-                             df2[TARGET_LABELS].apply(dummies_to_decimal, axis=1)
+# def compute_targets_diff(df1, df2, label_index):
+#     field_name = 'targets_diff_%i' % label_index
+#     df1.loc[:, field_name] = df1[TARGET_LABELS].apply(dummies_to_decimal, axis=1) -\
+#                              df2[TARGET_LABELS].apply(dummies_to_decimal, axis=1)
+
+def compute_targets_diff(df1, df2):
+    return df1.apply(dummies_to_decimal, axis=1) - df2.apply(dummies_to_decimal, axis=1)
 
 
-def compute_targets_group_diff(df1, df2, label_index):
-    for label1 in TARGET_GROUP_DEC_LABELS:
-        label2 = label1 + '_%i' % label_index
-        field_name = label1 + '_diff_%i' % label_index
-        df1.loc[:, field_name] = df1[label1] - df2[label2]
+def compute_targets_group_diff(df1, df2):
+    assert len(df1.columns) == len(df2.columns), "Columns length is not the same"
+    res = pd.DataFrame()
+    for c1, c2 in zip(df1.columns, df2.columns):
+        res.loc[:, '%s-%s' % (c1, c2)] = df1[c1] - df2[c2]
+    return res
 
 
-def add_targets_columns(df1, df2):
-    cols = list(set(df2.columns) - set(FEATURES_NAMES + ['fecha_alta', 'fecha_dato', 'ncodpers'] + TARGET_LABELS))
-    for c in cols:
-        df1.loc[:, c] = df2.loc[:, c]
+# def add_targets_columns(df1, df2):
+#     cols = list(set(df2.columns) - set(FEATURES_NAMES + ['fecha_alta', 'fecha_dato', 'ncodpers'] + TARGET_LABELS))
+#     for c in cols:
+#         df1.loc[:, c] = df2.loc[:, c]
 
 
 def add_targets_str(df, field_name='targets_str', mask=None, target_labels=TARGET_LABELS):
