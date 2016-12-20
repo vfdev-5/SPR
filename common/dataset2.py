@@ -81,27 +81,29 @@ def load_trainval(yearmonth, n_clients='max'):
     """
 
     def _get_XY(df):
-        X = df[['ncodpers', 'fecha_dato'] +
+        X = df[['ncodpers', 'fecha_dato', 'fecha_alta'] +
                FEATURES_NAMES +
                PROCESSED_TARGETS(1) +
                PROCESSED_TARGETS(2) +
                PROCESSED_TARGETS(3) +
+               PROCESSED_TARGETS(4) +
                DIFF_TARGETS(1, 2) +
-               DIFF_TARGETS(1, 3)
-        ]
+               DIFF_TARGETS(1, 3) +
+               DIFF_TARGETS(1, 4)
+               ]
 
-        Y = df[['targets_str', 'last_targets_str', 'added_targets_str'] +
+        Y = df[['targets_str', 'last_targets_str', 'added_targets_str', 'added_targets_dec'] +
                TARGET_LABELS + LAST_TARGET_LABELS.tolist() + ADDED_TARGET_LABELS.tolist()
         ]
         return X, Y
 
     filename = "trainval_%s__%s.csv" % (str(yearmonth), str(n_clients))
     filepath = '../data/generated/' + filename
-    if os.path.exists(filepath) and os.path.isfile(filepath):
-        logging.info("- Found already generated file, load it")
-        df = pd.read_csv('../data/generated/' + filename)
-        X, Y = _get_XY(df)
-        return X, Y
+    # if os.path.exists(filepath) and os.path.isfile(filepath):
+    #     logging.info("- Found already generated file, load it")
+    #     df = pd.read_csv('../data/generated/' + filename)
+    #     X, Y = _get_XY(df)
+    #     return X, Y
     # else:
 
     assert yearmonth < 201606, "Yearmonth should be less 201606"
@@ -145,15 +147,16 @@ def load_trainval(yearmonth, n_clients='max'):
 
     # Load supplementary data
     ref_clients = df['ncodpers'].unique()
-    supp_yearmonths_list = [_get_year_january(yearmonth), yearmonth - 100]
-    ll = len(ref_clients)
+    supp_yearmonths_list = [_get_prev_ym(yearmonths_list[1]), _get_year_january(yearmonth), yearmonth - 100]
+    #ll = len(ref_clients)
+    ll = 'max'
     index_offset = 2
     for i, ym in enumerate(supp_yearmonths_list):
         logging.info("- Add a supplementary data : %i" % ym)
         df_ym = load_data2(fname, [ym], ll)
         minimal_clean_data_inplace(df_ym)
         preprocess_data_inplace(df_ym)
-        process_features(df_ym)
+        #process_features(df_ym)
 
         df_ym = add_zero_missing_clients(df_ym, ym, df, yearmonth, ref_clients)
 
@@ -184,7 +187,7 @@ def compute_added_products(df):
         diff = df[c1] - df[c2]
         diff[diff < 0] = 0
         df.loc[:, nc] = diff
-    df.loc[:, 'added_targets'] = df[ADDED_TARGET_LABELS].sum(axis=1)
+    df.loc[:, 'added_targets_dec'] = df[ADDED_TARGET_LABELS].sum(axis=1)
 
 
 def append_columns(df1, df2, new_columns=()):
