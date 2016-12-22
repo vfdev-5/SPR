@@ -20,7 +20,7 @@ TARGET_GROUPS = [
     [0, 1, 3, 9, 16],
 ]
 
-TARGET_LABELS_FRQ = np.array(['freq_' + t for t in TARGET_LABELS])
+FREQ_TARGET_LABELS = np.array(['freq_' + t for t in TARGET_LABELS])
 LAST_TARGET_LABELS = np.array(['last_' + t for t in TARGET_LABELS])
 ADDED_TARGET_LABELS = np.array(['added_' + t for t in TARGET_LABELS])
 
@@ -47,7 +47,7 @@ def TARGET_GROUPS_DEC(i):
 def PROCESSED_TARGETS(i):
     out = ['targets_str_%i' % i, 'targets_logdec_%i' % i]
     out += TARGET_GROUPS_DEC(i)
-    out += [f + '_%i' % i for f in TARGET_LABELS_FRQ]
+    out += [f + '_%i' % i for f in FREQ_TARGET_LABELS]
     return out
 
 
@@ -59,6 +59,105 @@ def DIFF_TARGETS(i, j):
 
 def DIFF_TARGET_GROUPS_DEC(i, j):
     return ['diff_' + g + '_%i%i' % (i, j) for g in TARGET_GROUP_DEC_LABELS]
+
+
+def load_test():
+    """
+
+    :return: test X, Y (only LAST_TARGET_LABELS and last_targets_str) dataframe
+    """
+    def _get_XY(df):
+        X = df[['ncodpers', 'fecha_dato', 'fecha_alta'] +
+               FEATURES_NAMES +
+               PROCESSED_TARGETS(1) +
+               PROCESSED_TARGETS(2) +
+               PROCESSED_TARGETS(3) +
+               PROCESSED_TARGETS(4) +
+               DIFF_TARGETS(1, 2) +
+               DIFF_TARGETS(1, 3) +
+               DIFF_TARGETS(1, 4)
+               ]
+
+        Y = df[['last_targets_str'] + LAST_TARGET_LABELS.tolist()]
+        return X, Y
+
+    filename = "test.csv"
+    filepath = '../data/generated/' + filename
+    if os.path.exists(filepath) and os.path.isfile(filepath):
+        logging.info("- Found already generated file, load it")
+        df = pd.read_csv('../data/generated/' + filename)
+        X, Y = _get_XY(df)
+        return X, Y
+    # else:
+
+    # load all test data:
+    fname = TEST_FILE_PATH
+    yearmonths_list = []
+    logging.info("- Load file : %s" % (fname))
+    df = load_data2(fname, [])
+    minimal_clean_data_inplace(df)
+    preprocess_data_inplace(df)
+    ref_clients = df['ncodpers'].unique()
+
+    # load data from train dataset
+    fname = TRAIN_FILE_PATH
+    yearmonth = 201606
+    yearmonths_list = [_get_prev_ym(yearmonth)]
+    logging.info("- Load file : %s, yearmonth=%i" % (fname, yearmonths_list[0]))
+    df1 = load_data2(fname, yearmonths_list)
+    minimal_clean_data_inplace(df1)
+    preprocess_data_inplace(df1)
+    df1 = df1[df1['ncodpers'].isin(ref_clients)]
+
+    df = df.sort_values(['ncodpers', 'fecha_dato'])
+    df1 = df1.sort_values(['ncodpers', 'fecha_dato'])
+    df1.index = df.index
+    assert (df['ncodpers'] == df1['ncodpers']).all(), "Clients are not alignable"
+
+    # Transform main month:
+    process_features(df)
+
+    # Append products from the previous month:
+    append_columns(df, df1[TARGET_LABELS], LAST_TARGET_LABELS)
+    add_targets_str(df, 'last_targets_str', target_labels=LAST_TARGET_LABELS)
+
+    # Process targets of yearmonth - 1
+    process_targets(df1, label_index=1)
+    append_columns(df, df1[PROCESSED_TARGETS(1)])
+
+    assert not df.isnull().any().all(), "Some nan values appeared"
+
+    # Load supplementary data
+    supp_yearmonths_list = [_get_prev_ym(yearmonths_list[0]), _get_year_january(yearmonth), yearmonth - 100]
+    ll = 'max'
+    index_offset = 2
+    for i, ym in enumerate(supp_yearmonths_list):
+        logging.info("- Add a supplementary data : %i" % ym)
+        df_ym = load_data2(fname, [ym], ll)
+        minimal_clean_data_inplace(df_ym)
+        preprocess_data_inplace(df_ym)
+        #process_features(df_ym)
+
+        df_ym = add_zero_missing_clients(df_ym, ym, df, yearmonth, ref_clients)
+
+        df_ym = df_ym[df_ym['ncodpers'].isin(ref_clients)].sort_values(['ncodpers'])
+        df_ym.index = df.index
+        assert (df['ncodpers'] == df_ym['ncodpers']).all(), "Clients are not alignable"
+
+        process_targets(df_ym, label_index=i+index_offset)
+        append_columns(df, df_ym[PROCESSED_TARGETS(i+index_offset)])
+
+        fn = 'diff_targets_dec_%i%i' % (1, i+index_offset)
+        df.loc[:, fn] = compute_targets_diff(df1[TARGET_LABELS], df_ym[TARGET_LABELS])
+
+        res = compute_targets_group_diff(df1[TARGET_GROUPS_DEC(1)],
+                                         df_ym[TARGET_GROUPS_DEC(i+index_offset)])
+        append_columns(df, res, DIFF_TARGET_GROUPS_DEC(1, i+index_offset))
+
+    logging.info("Store computed data as file : %s" % filepath)
+    df.to_csv(filepath, index=False, index_label=False)
+    X, Y = _get_XY(df)
+    return X, Y
 
 
 def load_trainval(yearmonth, n_clients='max'):
@@ -99,11 +198,11 @@ def load_trainval(yearmonth, n_clients='max'):
 
     filename = "trainval_%s__%s.csv" % (str(yearmonth), str(n_clients))
     filepath = '../data/generated/' + filename
-    # if os.path.exists(filepath) and os.path.isfile(filepath):
-    #     logging.info("- Found already generated file, load it")
-    #     df = pd.read_csv('../data/generated/' + filename)
-    #     X, Y = _get_XY(df)
-    #     return X, Y
+    if os.path.exists(filepath) and os.path.isfile(filepath):
+        logging.info("- Found already generated file, load it")
+        df = pd.read_csv('../data/generated/' + filename)
+        X, Y = _get_XY(df)
+        return X, Y
     # else:
 
     assert yearmonth < 201606, "Yearmonth should be less 201606"
@@ -302,7 +401,7 @@ def add_targets_logdecimal(df, field_name='targets_logdec', mask=None):
 
 def add_target_frq_values(df, mask=None, label_index=0):
     label_index = '' if label_index == 0 else '_%i' % label_index
-    for t, nt in zip(TARGET_LABELS, TARGET_LABELS_FRQ):
+    for t, nt in zip(TARGET_LABELS, FREQ_TARGET_LABELS):
         nt += label_index
         counts = df[t].value_counts()
         counts = counts/counts.sum()
