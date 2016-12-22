@@ -1,35 +1,177 @@
 
-#
-# Common methods for scripts of ZFTurbo
-#
-
 import math
-from collections import defaultdict
-import pandas as pd
 
-MEAN_AGE_18_30 = 23
-MEAN_AGE_31_90 = 50
-MEAN_AGE = 42
+from utils import to_yearmonth
 
-# INCOMES_STATS_DF = pd.read_csv('incomes_stats.csv')
-# INCOMES_STATS_DF.loc[INCOMES_STATS_DF['sexo'].isnull(), 'sexo'] = "NA"
-#
-# INCOMES_STATS_MAP = defaultdict(list)
-# for index in INCOMES_STATS_DF.index:
-#     _row = INCOMES_STATS_DF.loc[index]
-#     INCOMES_STATS_MAP[tuple(_row.values[:-1])] = _row['renta']
 
-#
-# INCOMES_STATS_MAP = map between
-#   - key : 'pais_residencia', 'nomprov', 'ind_empleado', 'segmento', 'sexo', 'age_group'
-#   - value : median 'renta'
-# {
-#   ('ES', 'GIRONA', 'N', '02 - PARTICULARES', 'V', 4): 100582.38,
-#   ('ES', 'PONTEVEDRA', 'N', '01 - TOP', 'V', 2): 98123.25,
-#   ('ES', 'MELILLA', 'N', '02 - PARTICULARES', 'V', 5): 121031.58,
-#   ....
-# }
-#
+def parse_line(line):
+    """
+    :param line:
+    :return: array of values
+    """
+    if "\"" in line:
+        tmp1 = line.split("\"")
+        arr = tmp1[0][:-1].split(",") + [tmp1[1]] + tmp1[2][1:].split(',')
+    else:
+        arr = line.split(",")
+    arr = [a.strip() for a in arr]
+    return arr
+
+
+def get_target_labels(header_line):
+    """
+    :param header_line:
+    :return:
+    """
+    line = header_line.strip()
+    line = line.replace("\"", "")
+    return line.split(",")[24:]
+
+
+def get_user(row):
+    """
+    :param row:
+    :return:
+    """
+    return row[1]
+
+
+def get_yearmonth(row):
+    return to_yearmonth(row[0])
+
+
+def get_profile(row):
+    return row[2:24]
+
+
+def get_choices(row):
+    return row[24:]
+
+
+def clean_data(input_row):
+    row = list(input_row)
+    clean_data_inplace(row)
+    return row
+
+
+def clean_data_inplace(row):
+    """
+    Method to clean data rows
+    """
+    ll = len(row)
+    row_indices = range(ll)
+    # Replace empty values by NA
+    for i in row_indices:
+        if row[i] == '':
+            row[i] = "NA"
+
+    (fecha_dato, ncodpers, ind_empleado,  # 0
+     pais_residencia, sexo, age,  # 3
+     fecha_alta, ind_nuevo, antiguedad,  # 6
+     indrel, ult_fec_cli_1t, indrel_1mes,  # 9
+     tiprel_1mes, indresi, indext,  # 12
+     conyuemp, canal_entrada, indfall,  # 15
+     tipodom, cod_prov, nomprov,  # 18
+     ind_actividad_cliente, renta, segmento) = row[:24]
+
+    # If unknown user <=> no info in columns ['age', 'ind_empleado', 'fecha_alta', 'pais_residencia', 'sexo']
+    if len(fecha_alta) + len(age) + len(ind_empleado) + len(pais_residencia) + len(sexo) == len('NA')*5:
+        # remove data
+        return False
+
+    # Remove clients not staying in Spain with known (spanish) nomprov
+    if nomprov != "NA" and pais_residencia != "ES":
+        # remove data
+        return False
+
+    # Convert to types :
+    row[1] = int(ncodpers)
+    row[22] = float(renta) if renta != "NA" else renta
+    # Remove floating point at string indrel_1mes
+    row[11] = str(int(float(indrel_1mes))) if len(indrel_1mes) == 3 else indrel_1mes
+
+    for i in range(24, ll):
+        row[i] = int(row[i]) if row[i] != "NA" else 0
+
+    (fecha_dato, ncodpers, ind_empleado,  # 0
+     pais_residencia, sexo, age,  # 3
+     fecha_alta, ind_nuevo, antiguedad,  # 6
+     indrel, ult_fec_cli_1t, indrel_1mes,  # 9
+     tiprel_1mes, indresi, indext,  # 12
+     conyuemp, canal_entrada, indfall,  # 15
+     tipodom, cod_prov, nomprov,  # 18
+     ind_actividad_cliente, renta, segmento) = row[:24]
+
+    # Fix accents for 'nomprov'
+    if nomprov == "CORU\xc3\x91A, A":
+        row[20] = "CORUNA"
+
+    # Clamp age
+    # if age < 18:
+    #     row[5] = MEAN_AGE_18_30
+    # elif age > 90:
+    #     row[5] = MEAN_AGE_31_90
+
+    # Fix problems with 'indrel_1mes' and 'tiprel_1mes':
+    fecha_alta_month = fecha_alta[5:7]
+    fecha_dato_month = fecha_dato[5:7]
+
+    if indrel_1mes == "NA" and tiprel_1mes == "NA" and fecha_alta_month == fecha_dato_month:
+        if indrel == '1':
+            row[11] = '1'  # indrel_1mes = '1'
+        elif indrel == '99':
+            row[11] = '3'  # indrel_1mes = '3'
+        row[12] = 'A'  # tiprel_1mes = 'A'
+
+    (fecha_dato, ncodpers, ind_empleado,  # 0
+     pais_residencia, sexo, age,  # 3
+     fecha_alta, ind_nuevo, antiguedad,  # 6
+     indrel, ult_fec_cli_1t, indrel_1mes,  # 9
+     tiprel_1mes, indresi, indext,  # 12
+     conyuemp, canal_entrada, indfall,  # 15
+     tipodom, cod_prov, nomprov,  # 18
+     ind_actividad_cliente, renta, segmento) = row[:24]
+
+    # Fill `renta` nan -> median per region, employee index, segment, gender, if has no information -> replace by -99
+    if renta == "NA":
+        # age_group = get_age_group_index(age)
+        # key = (pais_residencia, nomprov, ind_empleado, segmento, sexo, age_group)
+        # if key in INCOMES_STATS_MAP:
+        #     row[22] = INCOMES_STATS_MAP[key]
+        # else:
+        #     row[22] = -99.0
+        row[22] = -99.0
+    return True
+
+
+def process_data(input_row):
+    row = list(input_row)
+    process_data_inplace(row)
+    return row
+
+
+def process_data_inplace(row):
+    """
+    Method to process data rows (feature engineering)
+
+    (fecha_dato, ncodpers, ind_empleado,  # 0
+     pais_residencia, sexo, age,  # 3
+     fecha_alta, ind_nuevo, antiguedad,  # 6
+     indrel, ult_fec_cli_1t, indrel_1mes,  # 9
+     tiprel_1mes, indresi, indext,  # 12
+     conyuemp, canal_entrada, indfall,  # 15
+     tipodom, cod_prov, nomprov,  # 18
+     ind_actividad_cliente, renta, segmento)  # 21
+
+    renta -> income group index
+    age -> age group index
+    antiguedad -> int(fecha_dato - fecha_alta)
+
+    """
+    row[22] = get_income_group_index(row[22])
+    row[5] = get_age_group_index(row[5])
+    res = to_yearmonth(row[0])*0.01 - to_yearmonth(row[6])*0.01
+    row[8] = int(math.floor(res)) * 12 + int(math.ceil((res - int(res)) * 100))
 
 
 def get_age_group_index(age):
@@ -94,223 +236,3 @@ def get_income_group_index(income):
         return 8
     else:
         return 9
-
-
-def parse_line(line):
-    """
-    :param line:
-    :return: array of values
-    """
-    if "\"" in line:
-        tmp1 = line.split("\"")
-        arr = tmp1[0][:-1].split(",") + [tmp1[1]] + tmp1[2][1:].split(',')
-    else:
-        arr = line.split(",")
-    arr = [a.strip() for a in arr]
-    return arr
-
-
-def get_target_labels(header_line):
-    """
-    :param header_line:
-    :return:
-    """
-    line = header_line.strip()
-    line = line.replace("\"", "")
-    return line.split(",")[24:]
-
-
-def get_user(row):
-    """
-    :param row:
-    :return:
-    """
-    return row[1]
-
-
-def get_profile(row):
-    return row[2:24]
-
-
-def get_choices(row):
-    return row[24:]
-
-
-def clean_data(input_row):
-    row = list(input_row)
-    clean_data_inplace(row)
-    return row
-
-
-def clean_data_inplace(row):
-    """
-    Method to clean data rows
-    """
-    ll = len(row)
-    row_indices = range(ll)
-    # Replace empty values by NA
-    for i in row_indices:
-        if row[i] == '':
-            row[i] = "NA"
-
-    (fecha_dato, ncodpers, ind_empleado,  # 0
-     pais_residencia, sexo, age,  # 3
-     fecha_alta, ind_nuevo, antiguedad,  # 6
-     indrel, ult_fec_cli_1t, indrel_1mes,  # 9
-     tiprel_1mes, indresi, indext,  # 12
-     conyuemp, canal_entrada, indfall,  # 15
-     tipodom, cod_prov, nomprov,  # 18
-     ind_actividad_cliente, renta, segmento) = row[:24]
-
-    # If unknown user <=> no info in columns ['age', 'ind_empleado', 'fecha_alta', 'pais_residencia', 'sexo']
-    if len(fecha_alta) + len(age) + len(ind_empleado) + len(pais_residencia) + len(sexo) == len('NA')*5:
-        # remove data
-        #logging.debug("Remove unknown user %s" % row[1])
-        return False
-
-    # Remove clients not staying in Spain with known (spanish) nomprov
-    if nomprov != "NA" and pais_residencia != "ES":
-        # remove data
-        return False
-
-    # Convert to types :
-    row[1] = int(ncodpers)
-    # row[5] = int(age) if age != "NA" else MEAN_AGE
-    row[22] = float(renta) if renta != "NA" else renta
-    row[11] = str(int(float(indrel_1mes))) if len(indrel_1mes) == 3 else indrel_1mes  # Remove floating point at string indrel_1mes
-
-    for i in range(24, ll):
-        row[i] = int(row[i]) if row[i] != "NA" else 0
-
-    (fecha_dato, ncodpers, ind_empleado,  # 0
-     pais_residencia, sexo, age,  # 3
-     fecha_alta, ind_nuevo, antiguedad,  # 6
-     indrel, ult_fec_cli_1t, indrel_1mes,  # 9
-     tiprel_1mes, indresi, indext,  # 12
-     conyuemp, canal_entrada, indfall,  # 15
-     tipodom, cod_prov, nomprov,  # 18
-     ind_actividad_cliente, renta, segmento) = row[:24]
-
-    # Fix accents for 'nomprov'
-    if nomprov == "CORU\xc3\x91A, A":
-        row[20] = "CORUNA"
-
-    # Clamp age
-    # if age < 18:
-    #     row[5] = MEAN_AGE_18_30
-    # elif age > 90:
-    #     row[5] = MEAN_AGE_31_90
-
-    # Fix problems with 'indrel_1mes' and 'tiprel_1mes':
-    fecha_alta_month = fecha_alta[5:7]
-    fecha_dato_month = fecha_dato[5:7]
-
-    if indrel_1mes == "NA" and tiprel_1mes == "NA" and fecha_alta_month == fecha_dato_month:
-        if indrel == '1':
-            row[11] = '1'  # indrel_1mes = '1'
-        elif indrel == '99':
-            row[11] = '3'  # indrel_1mes = '3'
-        row[12] = 'A'  # tiprel_1mes = 'A'
-
-    (fecha_dato, ncodpers, ind_empleado,  # 0
-     pais_residencia, sexo, age,  # 3
-     fecha_alta, ind_nuevo, antiguedad,  # 6
-     indrel, ult_fec_cli_1t, indrel_1mes,  # 9
-     tiprel_1mes, indresi, indext,  # 12
-     conyuemp, canal_entrada, indfall,  # 15
-     tipodom, cod_prov, nomprov,  # 18
-     ind_actividad_cliente, renta, segmento) = row[:24]
-
-    # Fill `renta` nan -> median per region, employee index, segment, gender, if has no information -> replace by -99
-    if renta == "NA":
-        # age_group = get_age_group_index(age)
-        # key = (pais_residencia, nomprov, ind_empleado, segmento, sexo, age_group)
-        # if key in INCOMES_STATS_MAP:
-        #     row[22] = INCOMES_STATS_MAP[key]
-        # else:
-        #     row[22] = -99.0
-        row[22] = -99.0
-    return True
-
-
-def to_yearmonth(yearmonthdate_str):
-    """
-    Convert '2016-01-23' -> 201601
-    """
-    # yearmonth = int(yearmonth_str[:7].replace('-', ''))
-    yearmonth = int(yearmonthdate_str[:4] + yearmonthdate_str[5:7])
-    return yearmonth
-
-
-def process_data(input_row):
-    row = list(input_row)
-    process_data_inplace(row)
-    return row
-
-
-def process_data_inplace(row):
-    """
-    Method to process data rows (feature engineering)
-
-    (fecha_dato, ncodpers, ind_empleado,  # 0
-     pais_residencia, sexo, age,  # 3
-     fecha_alta, ind_nuevo, antiguedad,  # 6
-     indrel, ult_fec_cli_1t, indrel_1mes,  # 9
-     tiprel_1mes, indresi, indext,  # 12
-     conyuemp, canal_entrada, indfall,  # 15
-     tipodom, cod_prov, nomprov,  # 18
-     ind_actividad_cliente, renta, segmento)  # 21
-
-    renta -> income group index
-    age -> age group index
-    antiguedad -> int(fecha_dato - fecha_alta)
-
-    """
-    row[22] = get_income_group_index(row[22])
-    row[5] = get_age_group_index(row[5])
-    res = to_yearmonth(row[0])*0.01 - to_yearmonth(row[6])*0.01
-    row[8] = int(math.floor(res)) * 12 + int(math.ceil((res - int(res)) * 100))
-
-
-def process_row(input_row):
-    row = list(input_row)
-    if clean_data_inplace(row):
-        process_data_inplace(row)
-        return row
-    return []
-
-
-def apk(actual, predicted, k=7):
-    # print "APK : ", actual, predicted
-
-    if len(predicted) > k:
-        predicted = predicted[:k]
-
-    score = 0.0
-    num_hits = 0.0
-
-    for i, p in enumerate(predicted):
-        if p in actual and p not in predicted[:i]:
-            num_hits += 1.0
-            score += num_hits / (i + 1.0)
-
-    if not actual:
-        return 0.0
-
-    return score / min(len(actual), k)
-
-
-def get_real_values(row, personal_recommendations):
-    real = []
-    user = get_user(row)
-    choices = get_choices(row)
-
-    for i, c in enumerate(choices):
-        if c == 1:
-            if user in personal_recommendations:
-                if personal_recommendations[user]['last_choice'][i] == 0:
-                    real.append(i)
-            else:
-                real.append(i)
-    return real
-

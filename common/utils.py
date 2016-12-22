@@ -94,7 +94,8 @@ def targets_indices_to_labels(targets_indices, tl):
 
 def dummies_to_str(row):
     output = ''
-    for v in row.values:
+    d = row.values if hasattr(row, 'values') else row
+    for v in d:
         output += str(int(v))
     return output
 
@@ -148,6 +149,8 @@ def load_data2(filename, yearmonths_list, nb_clients=-1):
     df = pd.DataFrame()
     if len(yearmonths_list) > 0:
         for yearmonth in yearmonths_list:
+            if yearmonth not in MONTH_START_END_ROW_INDICES:
+                continue
             skiprows = MONTH_START_END_ROW_INDICES[yearmonth][0]
             nrows = MONTH_START_END_ROW_INDICES[yearmonth][1] - skiprows + 1
             _df = pd.read_csv(filename, dtype=load_dtypes, skiprows=range(1, skiprows + 1), nrows=nrows)
@@ -212,6 +215,14 @@ def _to_nb_months(ym_dec):
 
 def _get_prev_ym(ym):
     return _to_ym(_to_ym_dec(ym) - _to_ym_dec(2))
+
+
+def _sub_months_ym(ym, n_months):
+    return _to_ym(_to_ym_dec(ym) - _to_ym_dec(n_months + 1))
+
+
+def _add_months_ym(ym, n_months):
+    return _to_ym(_to_ym_dec(ym) + _to_ym_dec(n_months + 1))
 
 
 def _get_year_january(ym):
