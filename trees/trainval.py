@@ -99,11 +99,6 @@ def train_all(X_train, Y_train,
             for labels_mask_name in labels_masks_dict:
                 labels_mask = labels_masks_dict[labels_mask_name]
                 Y_train__ = Y_train_[labels_mask] if labels_mask is not None else Y_train_
-                x_train, y_train = prepare_to_fit_func(X_train__, Y_train__)
-
-                if len(y_train.shape) > 1 and y_train.shape[1] == 1:
-                    # avoid DataConversionWarning
-                    y_train = y_train.ravel()
 
                 for model_name in models_dict:
                     can_fit = True if samples_mask_index < len(_samples_masks_list)-1 else False
@@ -138,6 +133,12 @@ def train_all(X_train, Y_train,
 
                     if not can_fit:
                         continue
+
+                    x_train, y_train = prepare_to_fit_func(X_train__, Y_train__)
+
+                    if len(y_train.shape) > 1 and y_train.shape[1] == 1:
+                        # avoid DataConversionWarning
+                        y_train = y_train.ravel()
 
                     logging.info("-- Process : sample_mask={}/{}, features_mask={}, labels_mask={}"
                                  .format(len(X_train_), len(X_train), features_mask_name, labels_mask_name))
@@ -313,9 +314,9 @@ def predict_all(estimators, X_val, features_masks_dict, labels_masks_dict, label
         y_probas *= estimator[2]
         Y_probas = merge_probas(Y_probas, y_probas, labels_mask, **kwargs)
     
-    # Y_probas_max = Y_probas.max(axis=1)
-    # mask = Y_probas_max > 0
-    # Y_probas.loc[mask, :] = Y_probas[mask].div(Y_probas_max[mask], axis=0)
+    Y_probas_max = Y_probas.max(axis=1)
+    mask = Y_probas_max > 0
+    Y_probas.loc[mask, :] = Y_probas[mask].div(Y_probas_max[mask], axis=0)
     
     if transform_proba_func is not None:
         y_preds = transform_proba_func(Y_probas, **kwargs)
